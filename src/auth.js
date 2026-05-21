@@ -94,6 +94,12 @@ export function initAuth({ onAuthenticated }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
+      if (loginRes.status === 400) {
+        const problem = await loginRes.json().catch(() => ({}));
+        showError(problem.detail || 'Login failed.');
+        return;
+      }
+      if (!loginRes.ok) { showError('Invalid username or password.'); return; }
       const { token } = await loginRes.json();
       localStorage.setItem('token', token);
       showTodo();
