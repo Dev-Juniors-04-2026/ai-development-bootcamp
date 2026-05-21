@@ -1,14 +1,14 @@
 # Architecture
 
-## TODO App — v2.0
+> Structure, boundaries, and data flow. For the product spec see `PRD.md`; for commands and conventions see `CLAUDE.md`. Field-level data definitions live in PRD §7.
 
 ---
 
 ## Overview
 
-Single-page, in-browser TODO application with a Spring Boot REST backend and PostgreSQL database. The frontend is plain HTML/CSS/JS (no build tools, no frameworks). State is persisted via the backend API; `localStorage` is no longer the primary storage.
+Single-page, in-browser TODO application with a Spring Boot REST backend and PostgreSQL database. Frontend is plain HTML/CSS/JS (no build tools, no frameworks). State is persisted via the backend API; `localStorage` holds only the JWT token.
 
-> **Integration status:** The backend supports listing, creating, toggling, and deleting todos, as well as user registration and login with JWT-based authentication. The frontend calls the backend API via `api.js` and handles login/register/logout via `auth.js`. OAuth2 login (e.g., GitHub) is planned as the next step.
+**Integration status:** Todos (list/create/toggle/delete) and auth (register/login with JWT) are shipped end-to-end. OAuth2 third-party login is the next step — see "Planned" below.
 
 ---
 
@@ -17,11 +17,11 @@ Single-page, in-browser TODO application with a Spring Boot REST backend and Pos
 ```
 Browser (HTML/CSS/JS)
         │
-        │  HTTP (REST)
+        │  HTTP (REST + Bearer token)
         ▼
-Spring Boot Backend  (/api/todos)
+Spring Boot Backend  (/api/auth/*, /api/todos/*)
         │
-        │  JPA
+        │  JPA / Flyway
         ▼
 PostgreSQL Database
 ```
@@ -32,215 +32,112 @@ PostgreSQL Database
 
 ```
 /
-├── index.html          # Page structure and DOM skeleton
-├── css/
-│   └── style.css       # All visual styling
-├── src/
-│   ├── app.js          # Event wiring, DOM rendering, API calls for todos
-│   ├── api.js          # fetch wrappers for all backend endpoints
-│   └── auth.js         # Login/register/logout UI and token storage
-└── backend/            # Spring Boot application (Java 21, Maven)
-    └── src/main/java/com/example/todoapp/
-        ├── domain/
-        │   ├── InvalidCredentialsException.java
-        │   ├── UsernameAlreadyTakenException.java
-        │   ├── model/
-        │   │   ├── Todo.java
-        │   │   ├── User.java
-        │   │   └── AuthenticatedUser.java
-        │   └── port/
-        │       ├── in/
-        │       │   ├── TodoUseCase.java
-        │       │   └── UserUseCase.java
-        │       └── out/
-        │           ├── TodoRepository.java
-        │           ├── UserRepository.java
-        │           └── PasswordHasher.java
-        ├── application/
-        │   ├── TodoUseCaseImpl.java
-        │   └── UserUseCaseImpl.java
-        └── adapter/
-            ├── in/http/
-            │   ├── TodoController.java
-            │   ├── AuthController.java
-            │   ├── CreateTodoRequest.java
-            │   ├── RegisterRequest.java
-            │   ├── LoginRequest.java
-            │   ├── TodoResponse.java
-            │   ├── TokenResponse.java
-            │   ├── JwtFilter.java
-            │   ├── JwtService.java
-            │   ├── SecurityConfig.java
-            │   ├── ValidIsoDate.java
-            │   ├── ValidIsoDateValidator.java
-            │   ├── GlobalExceptionHandler.java
-            │   └── TestResetController.java
-            └── out/
-                ├── persistence/
-                │   ├── TodoJpaEntity.java
-                │   ├── TodoJpaRepository.java
-                │   ├── TodoPersistenceAdapter.java
-                │   ├── UserJpaEntity.java
-                │   ├── UserJpaRepository.java
-                │   └── UserPersistenceAdapter.java
-                └── security/
-                    └── Argon2PasswordHasher.java
+├── index.html
+├── css/style.css
+├── src/                          # frontend
+│   ├── app.js                    # todo UI: event wiring, rendering
+│   ├── api.js                    # fetch wrappers for backend endpoints
+│   └── auth.js                   # login/register/logout UI and token storage
+├── features/                     # Cucumber BDD tests (.feature + step_definitions/)
+└── backend/                      # Spring Boot, Java 21, Maven
+    └── src/
+        ├── main/
+        │   ├── java/com/example/todoapp/
+        │   │   ├── domain/             # pure Java, no Spring
+        │   │   │   ├── model/          # Todo, User, AuthenticatedUser
+        │   │   │   └── port/{in,out}/  # use-case + repository interfaces
+        │   │   ├── application/        # use-case implementations
+        │   │   └── adapter/
+        │   │       ├── in/http/        # controllers, DTOs, JWT filter, SecurityConfig
+        │   │       └── out/
+        │   │           ├── persistence/    # JPA entities + adapters
+        │   │           └── security/       # Argon2PasswordHasher
+        │   └── resources/
+        │       └── db/migration/       # Flyway migrations (V1__…, V2__…)
+        └── test/
+            └── java/…                  # JUnit unit + integration tests, mirrors main/
 ```
 
----
-
-## index.html
-
-Responsibilities:
-- Defines the page skeleton (head, body, meta)
-- Links `css/style.css` and `src/app.js`
-- Contains the static layout: header, input row, todo list container, empty-state message
-
-Key elements:
-- `<input id="todo-input">` — task entry field
-- `<button id="add-btn">` — triggers add action
-- `<ul id="todo-list">` — dynamic list; `app.js` renders items here
-- `<p id="empty-state">` — shown when list is empty
+For per-file responsibilities and exported functions, read the source. This document does not duplicate them.
 
 ---
 
-## style.css
+## Frontend
 
-Responsibilities:
-- Layout (centered single column, responsive width)
-- Input row and button appearance
-- Todo item layout (checkbox left, title center, delete button right)
-- Completed-item style (strikethrough text, muted color)
-- Empty-state visibility toggle via `.hidden` utility class
+Three modules:
 
-No external fonts or icon libraries. Delete button uses a plain `✕` character.
+- **`api.js`** — fetch wrappers for the backend. All HTTP details live here; nothing else in the frontend calls `fetch` directly.
+- **`app.js`** — wires DOM events to `api.js` calls and re-renders the todo list. Trims input and ignores empty submissions.
+- **`auth.js`** — login/register/logout UI and JWT storage. Reads/writes the token in `localStorage` and toggles between the auth view and the todo view.
 
----
-
-## api.js
-
-Responsibilities:
-- Encapsulates all HTTP calls to the backend
-- Keeps fetch details out of `app.js`
-
-| Export | Description |
-|---|---|
-| `fetchTodos()` | `GET /api/todos` — returns array of todo objects |
-| `createTodo(title, dueDate)` | `POST /api/todos` — creates and returns the new todo |
-| `toggleTodo(id)` | `PATCH /api/todos/{id}` — flips completed state, returns updated todo |
-| `deleteTodo(id)` | `DELETE /api/todos/{id}` |
-
----
-
-## app.js
-
-Responsibilities:
-- On startup calls `fetchTodos()` and renders the full list
-- Handles all user events (add, toggle, delete) via `api.js`, then re-renders
-
-### Functions
-
-| Function | Description |
-|---|---|
-| `render(todos)` | Clears and rebuilds `#todo-list` from a todos array; toggles empty-state |
-| `refresh()` | Calls `fetchTodos()` and passes result to `render()` |
-| `handleAdd()` | Reads input, calls `createTodo()`, then `refresh()` |
-
-### Event wiring
-
-- `#add-btn` click → `handleAdd`
-- `#todo-input` keydown `Enter` → `handleAdd`
-- Delegated `change` on `#todo-list` checkbox → `toggleTodo`, then `refresh`
-- Delegated `click` on `.delete-btn` → `deleteTodo`, then `refresh`
-
-Input is trimmed before use; empty/whitespace submissions are ignored.
+The HTML is a static skeleton; `index.html` and `style.css` carry no logic.
 
 ---
 
 ## Backend — Hexagonal Architecture
 
-The backend follows the **Ports & Adapters (Hexagonal) pattern**: business logic in the domain is fully isolated from infrastructure concerns.
-
-### Layers
+The backend follows **Ports & Adapters**: the domain is fully isolated from Spring, JPA, and HTTP concerns.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │  Adapter (in)          Application           Adapter (out)        │
-│  TodoController  →→  TodoUseCaseImpl  →→  TodoPersistenceAdapter │
-│  (HTTP/REST)          uses ports             (JPA/PostgreSQL)     │
+│  *Controller     →→   *UseCaseImpl    →→   *PersistenceAdapter   │
+│  (HTTP/REST)           uses ports            (JPA/PostgreSQL)     │
 └──────────────────────────────────────────────────────────────────┘
                           ↕ domain ports
-                     ┌─────────────────────┐
-                     │       Domain        │
-                     │  Todo               │
-                     │  TodoUseCase (in)   │
-                     │  TodoRepository (out)│
-                     └─────────────────────┘
+                  ┌─────────────────────────┐
+                  │         Domain          │
+                  │  Todo, User             │
+                  │  *UseCase  (inbound)    │
+                  │  *Repository (outbound) │
+                  └─────────────────────────┘
 ```
 
-### Domain (`domain/`)
+**Boundary rules (enforced):**
+- `domain/` must not import Spring, JPA, Jackson, or anything from `adapter/`.
+- `application/` depends on `domain/` ports only.
+- Adapters depend inward on ports, never on each other.
 
-| Class | Description |
-|---|---|
-| `Todo` | Domain model: `id` (UUID), `title` (String), `completed` (boolean), `dueDate` (String\|null), `userId` (UUID) |
-| `TodoUseCase` | Inbound port — `getAll()`, `create(title, dueDate)`, `toggle(id)`, `delete(id)` |
-| `TodoRepository` | Outbound port — `save()`, `findAll()`, `findById()`, `delete()`, `deleteAll()` |
-| `User` | Domain model: `id` (UUID), `username` (String), `passwordHash` (String) |
-| `AuthenticatedUser` | Domain model representing a logged-in user resolved from a JWT |
-| `UserUseCase` | Inbound port — `register(username, password)`, `login(username, password): token` |
-| `UserRepository` | Outbound port — `save()`, `findByUsername()` |
-| `PasswordHasher` | Outbound port — `hash()`, `verify()` |
+### Domain
 
-### Application (`application/`)
+- **Models:** `Todo`, `User`, `AuthenticatedUser`
+- **Inbound ports:** `TodoUseCase`, `UserUseCase`
+- **Outbound ports:** `TodoRepository`, `UserRepository`, `PasswordHasher`
+- **Exceptions:** `InvalidCredentialsException`, `UsernameAlreadyTakenException` — mapped to HTTP by `GlobalExceptionHandler`
 
-| Class | Description |
-|---|---|
-| `TodoUseCaseImpl` | Implements `TodoUseCase`; orchestrates domain logic via `TodoRepository` |
-| `UserUseCaseImpl` | Implements `UserUseCase`; hashes passwords with **Argon2**, issues JWT tokens |
+### Application
 
-### Adapters
+- `TodoUseCaseImpl` — orchestrates todo CRUD via `TodoRepository`
+- `UserUseCaseImpl` — registers users (hashes via `PasswordHasher`) and authenticates (issues JWTs via `JwtService`)
 
-**Inbound (`adapter/in/http/`)**
+### Inbound adapters (`adapter/in/http/`)
 
-| Class | Description |
-|---|---|
-| `TodoController` | `GET /api/todos`, `POST /api/todos`, `PATCH /api/todos/{id}`, `DELETE /api/todos/{id}` |
-| `AuthController` | `POST /api/auth/register`, `POST /api/auth/login` |
-| `CreateTodoRequest` | Request DTO: `{ title: String, dueDate: String\|null }` |
-| `RegisterRequest` | Request DTO: `{ username: String, password: String }` |
-| `LoginRequest` | Request DTO: `{ username: String, password: String }` |
-| `TodoResponse` | Response DTO: `{ id: UUID, title: String, completed: boolean, dueDate: String\|null }` |
-| `TokenResponse` | Response DTO: `{ token: String }` |
-| `JwtFilter` | Validates `Authorization: Bearer <token>` on every request and binds the `AuthenticatedUser` to the request context |
-| `JwtService` | Issues and validates JWT tokens (signing, expiry, claims) |
-| `SecurityConfig` | Spring Security configuration: stateless sessions, JWT filter wiring, public vs. authenticated routes |
-| `ValidIsoDate` / `ValidIsoDateValidator` | Bean Validation constraint for ISO 8601 date strings on request DTOs |
-| `GlobalExceptionHandler` | Maps domain exceptions to HTTP error responses |
-| `TestResetController` | `DELETE /api/todos/reset` — test profile only, clears all data |
+- `TodoController`, `AuthController` — REST endpoints (see table below)
+- Request/response DTOs (`*Request`, `*Response`) with Bean Validation
+- `JwtFilter` + `JwtService` — token validation and issuance
+- `SecurityConfig` — Spring Security: stateless sessions, public vs. authenticated routes
+- `ValidIsoDate` / `ValidIsoDateValidator` — custom Bean Validation constraint
+- `GlobalExceptionHandler` — maps domain exceptions to HTTP responses
+- `TestResetController` — `DELETE /api/todos/reset`, test profile only
 
-**Outbound (`adapter/out/persistence/`)**
+### Outbound adapters
 
-| Class | Description |
-|---|---|
-| `TodoPersistenceAdapter` | Implements `TodoRepository` using Spring Data JPA |
-| `TodoJpaEntity` | JPA entity mapped to `todo` table |
-| `TodoJpaRepository` | Spring Data `JpaRepository` |
-| `UserPersistenceAdapter` | Implements `UserRepository` using Spring Data JPA |
-| `UserJpaEntity` | JPA entity mapped to `user` table |
-| `UserJpaRepository` | Spring Data `JpaRepository` |
-| `Argon2PasswordHasher` | Implements `PasswordHasher` using Argon2 |
+- `adapter/out/persistence/` — `Todo`/`User` JPA entities, Spring Data repositories, persistence adapters
+- `adapter/out/security/` — `Argon2PasswordHasher`
 
 ### REST API
 
-| Method | Path | Status | Description |
-|---|---|---|---|
-| `POST` | `/api/auth/register` | ✅ implemented | Register a new user; body: `{ "username": "...", "password": "..." }` |
-| `POST` | `/api/auth/login` | ✅ implemented | Login; returns `{ "token": "..." }` |
-| `GET` | `/api/todos` | ✅ implemented | Returns all todos for the authenticated user |
-| `POST` | `/api/todos` | ✅ implemented | Creates a new todo; body: `{ "title": "...", "dueDate": "..." }` |
-| `PATCH` | `/api/todos/{id}` | ✅ implemented | Toggle completed state |
-| `DELETE` | `/api/todos/{id}` | ✅ implemented | Delete a single todo |
-| `DELETE` | `/api/todos/reset` | ✅ test only | Deletes all todos (test profile only) |
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/auth/register` | Register; body `{ username, password }` |
+| `POST` | `/api/auth/login` | Login; returns `{ token }` |
+| `GET` | `/api/todos` | List todos for the authenticated user |
+| `POST` | `/api/todos` | Create a todo |
+| `PATCH` | `/api/todos/{id}` | Toggle completed state |
+| `DELETE` | `/api/todos/{id}` | Delete a todo |
+| `DELETE` | `/api/todos/reset` | Test profile only — wipe all data |
+
+All `/api/todos/*` endpoints require `Authorization: Bearer <token>`.
 
 ### Tech Stack
 
@@ -249,10 +146,10 @@ The backend follows the **Ports & Adapters (Hexagonal) pattern**: business logic
 | Language | Java 21 |
 | Framework | Spring Boot 4.x |
 | Persistence | Spring Data JPA + PostgreSQL |
-| DB migrations | Flyway |
+| DB migrations | Flyway (`backend/src/main/resources/db/migration/V*__*.sql`) |
 | Build | Maven |
-| Auth | JWT (Bearer tokens); password hashing via Argon2 |
-| Test DB | H2 (in-memory), Testcontainers (integration) |
+| Auth | JWT Bearer tokens; Argon2 password hashing |
+| Test DB | H2 (in-memory) for unit slices; Testcontainers (PostgreSQL) for integration |
 
 ---
 
@@ -262,7 +159,7 @@ The backend follows the **Ports & Adapters (Hexagonal) pattern**: business logic
 Page load
     │
     ▼
-auth.js — check localStorage for JWT token
+auth.js — check localStorage for JWT
     ├── no token  → show login/register UI
     └── has token → show todo UI
                         │
@@ -283,21 +180,17 @@ Event handler (app.js)
     │
     ▼
 GET /api/todos → render() — rebuild DOM
-    │
-    ▼
-Updated UI
 ```
 
 ---
 
 ## Planned — OAuth2 Login
 
-Next step: allow users to log in with a third-party provider (e.g., GitHub) via OAuth2 Authorization Code flow. The backend will accept the provider callback, resolve/create a local `User`, and issue the same JWT used by password login. Frontend `auth.js` will gain a "Log in with GitHub" button that redirects to the provider and handles the post-callback token storage.
+Next step: allow login via a third-party provider (GitHub first) using the OAuth2 Authorization Code flow. Open design questions to resolve before implementation:
 
----
+- Provider integration library (Spring Security OAuth2 client vs. raw flow)
+- Linking model: does a GitHub user create a `User` row with a null `passwordHash`, or do we introduce a separate identity table that points to `User`?
+- New endpoints: callback URL, account-linking flow
+- Token issuance: same `JwtService` used by password login, so downstream `/api/todos/*` is unchanged
 
-## Constraints (from PRD)
-
-- Frontend: Plain HTML/CSS/JS only — no npm, no bundler, no framework
-- Backend: Spring Boot 4.x, Java 21, Maven, PostgreSQL
-- No cloud sync, no native apps, no priorities/tags
+This section will be expanded once the design is settled.
