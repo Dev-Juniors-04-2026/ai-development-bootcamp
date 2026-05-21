@@ -78,7 +78,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **Hard scope boundaries (non-goals):** No cloud sync, no native apps, no priorities/tags.
 
-**Auth:** JWT Bearer tokens; stored in `localStorage`. Passwords hashed server-side. Users see only their own todos.
+**Auth:** Username/password registration and login implemented; JWT Bearer tokens stored in `localStorage`; passwords hashed server-side with Argon2. Users see only their own todos. **Next step:** OAuth2 login via a third-party provider (e.g., GitHub).
 
 **Todo data model (persisted via backend API):**
 - `id` — UUID

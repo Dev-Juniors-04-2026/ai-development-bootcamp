@@ -1,8 +1,8 @@
 # Product Requirements Document (PRD)
 ## TODO App
 
-**Version:** 2.0  
-**Date:** 2026-04-21  
+**Version:** 2.1  
+**Date:** 2026-05-21  
 **Status:** Draft
 
 ---
@@ -57,6 +57,7 @@ Anyone who needs a quick, no-setup task list in their browser — students, prof
 - Each user sees only their own TODOs; todos are scoped per account
 - The login/register screen is shown when the user is not authenticated; the main TODO UI is shown after login
 - Unauthenticated access to the TODO list is not permitted
+- **Planned (next step):** A user can log in via OAuth2 with a third-party provider (e.g., GitHub) as an alternative to username/password
 
 ---
 

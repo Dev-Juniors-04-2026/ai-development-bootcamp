@@ -8,7 +8,7 @@
 
 Single-page, in-browser TODO application with a Spring Boot REST backend and PostgreSQL database. The frontend is plain HTML/CSS/JS (no build tools, no frameworks). State is persisted via the backend API; `localStorage` is no longer the primary storage.
 
-> **Integration status:** The backend supports listing, creating, toggling, and deleting todos. The frontend calls the backend API via `api.js`. Auth (register/login/JWT) is planned but not yet implemented in either layer.
+> **Integration status:** The backend supports listing, creating, toggling, and deleting todos, as well as user registration and login with JWT-based authentication. The frontend calls the backend API via `api.js` and handles login/register/logout via `auth.js`. OAuth2 login (e.g., GitHub) is planned as the next step.
 
 ---
 
@@ -38,42 +38,53 @@ PostgreSQL Database
 ├── src/
 │   ├── app.js          # Event wiring, DOM rendering, API calls for todos
 │   ├── api.js          # fetch wrappers for all backend endpoints
-│   └── auth.js         # Login/register/logout UI and token storage  [planned]
+│   └── auth.js         # Login/register/logout UI and token storage
 └── backend/            # Spring Boot application (Java 21, Maven)
     └── src/main/java/com/example/todoapp/
         ├── domain/
+        │   ├── InvalidCredentialsException.java
+        │   ├── UsernameAlreadyTakenException.java
         │   ├── model/
         │   │   ├── Todo.java
-        │   │   └── User.java                    [planned]
+        │   │   ├── User.java
+        │   │   └── AuthenticatedUser.java
         │   └── port/
         │       ├── in/
         │       │   ├── TodoUseCase.java
-        │       │   └── UserUseCase.java          [planned]
+        │       │   └── UserUseCase.java
         │       └── out/
         │           ├── TodoRepository.java
-        │           └── UserRepository.java       [planned]
+        │           ├── UserRepository.java
+        │           └── PasswordHasher.java
         ├── application/
         │   ├── TodoUseCaseImpl.java
-        │   └── UserUseCaseImpl.java              [planned]
+        │   └── UserUseCaseImpl.java
         └── adapter/
             ├── in/http/
             │   ├── TodoController.java
-            │   ├── AuthController.java           [planned]
+            │   ├── AuthController.java
             │   ├── CreateTodoRequest.java
-            │   ├── RegisterRequest.java          [planned]
-            │   ├── LoginRequest.java             [planned]
+            │   ├── RegisterRequest.java
+            │   ├── LoginRequest.java
             │   ├── TodoResponse.java
-            │   ├── TokenResponse.java            [planned]
-            │   ├── JwtFilter.java                [planned]
+            │   ├── TokenResponse.java
+            │   ├── JwtFilter.java
+            │   ├── JwtService.java
+            │   ├── SecurityConfig.java
+            │   ├── ValidIsoDate.java
+            │   ├── ValidIsoDateValidator.java
             │   ├── GlobalExceptionHandler.java
             │   └── TestResetController.java
-            └── out/persistence/
-                ├── TodoJpaEntity.java
-                ├── TodoJpaRepository.java
-                ├── TodoPersistenceAdapter.java
-                ├── UserJpaEntity.java            [planned]
-                ├── UserJpaRepository.java        [planned]
-                └── UserPersistenceAdapter.java   [planned]
+            └── out/
+                ├── persistence/
+                │   ├── TodoJpaEntity.java
+                │   ├── TodoJpaRepository.java
+                │   ├── TodoPersistenceAdapter.java
+                │   ├── UserJpaEntity.java
+                │   ├── UserJpaRepository.java
+                │   └── UserPersistenceAdapter.java
+                └── security/
+                    └── Argon2PasswordHasher.java
 ```
 
 ---
@@ -174,16 +185,18 @@ The backend follows the **Ports & Adapters (Hexagonal) pattern**: business logic
 | `Todo` | Domain model: `id` (UUID), `title` (String), `completed` (boolean), `dueDate` (String\|null), `userId` (UUID) |
 | `TodoUseCase` | Inbound port — `getAll()`, `create(title, dueDate)`, `toggle(id)`, `delete(id)` |
 | `TodoRepository` | Outbound port — `save()`, `findAll()`, `findById()`, `delete()`, `deleteAll()` |
-| `User` | Domain model: `id` (UUID), `username` (String), `passwordHash` (String) — **[planned]** |
-| `UserUseCase` | Inbound port — `register(username, password)`, `login(username, password): token` — **[planned]** |
-| `UserRepository` | Outbound port — `save()`, `findByUsername()` — **[planned]** |
+| `User` | Domain model: `id` (UUID), `username` (String), `passwordHash` (String) |
+| `AuthenticatedUser` | Domain model representing a logged-in user resolved from a JWT |
+| `UserUseCase` | Inbound port — `register(username, password)`, `login(username, password): token` |
+| `UserRepository` | Outbound port — `save()`, `findByUsername()` |
+| `PasswordHasher` | Outbound port — `hash()`, `verify()` |
 
 ### Application (`application/`)
 
 | Class | Description |
 |---|---|
 | `TodoUseCaseImpl` | Implements `TodoUseCase`; orchestrates domain logic via `TodoRepository` |
-| `UserUseCaseImpl` | Implements `UserUseCase`; hashes passwords with **Argon2**, issues JWT tokens — **[planned]** |
+| `UserUseCaseImpl` | Implements `UserUseCase`; hashes passwords with **Argon2**, issues JWT tokens |
 
 ### Adapters
 
@@ -192,13 +205,16 @@ The backend follows the **Ports & Adapters (Hexagonal) pattern**: business logic
 | Class | Description |
 |---|---|
 | `TodoController` | `GET /api/todos`, `POST /api/todos`, `PATCH /api/todos/{id}`, `DELETE /api/todos/{id}` |
-| `AuthController` | `POST /api/auth/register`, `POST /api/auth/login` — **[planned]** |
+| `AuthController` | `POST /api/auth/register`, `POST /api/auth/login` |
 | `CreateTodoRequest` | Request DTO: `{ title: String, dueDate: String\|null }` |
-| `RegisterRequest` | Request DTO: `{ username: String, password: String }` — **[planned]** |
-| `LoginRequest` | Request DTO: `{ username: String, password: String }` — **[planned]** |
+| `RegisterRequest` | Request DTO: `{ username: String, password: String }` |
+| `LoginRequest` | Request DTO: `{ username: String, password: String }` |
 | `TodoResponse` | Response DTO: `{ id: UUID, title: String, completed: boolean, dueDate: String\|null }` |
-| `TokenResponse` | Response DTO: `{ token: String }` — **[planned]** |
-| `JwtFilter` | Validates `Authorization: Bearer <token>` on every request — **[planned]** |
+| `TokenResponse` | Response DTO: `{ token: String }` |
+| `JwtFilter` | Validates `Authorization: Bearer <token>` on every request and binds the `AuthenticatedUser` to the request context |
+| `JwtService` | Issues and validates JWT tokens (signing, expiry, claims) |
+| `SecurityConfig` | Spring Security configuration: stateless sessions, JWT filter wiring, public vs. authenticated routes |
+| `ValidIsoDate` / `ValidIsoDateValidator` | Bean Validation constraint for ISO 8601 date strings on request DTOs |
 | `GlobalExceptionHandler` | Maps domain exceptions to HTTP error responses |
 | `TestResetController` | `DELETE /api/todos/reset` — test profile only, clears all data |
 
@@ -209,16 +225,17 @@ The backend follows the **Ports & Adapters (Hexagonal) pattern**: business logic
 | `TodoPersistenceAdapter` | Implements `TodoRepository` using Spring Data JPA |
 | `TodoJpaEntity` | JPA entity mapped to `todo` table |
 | `TodoJpaRepository` | Spring Data `JpaRepository` |
-| `UserPersistenceAdapter` | Implements `UserRepository` using Spring Data JPA — **[planned]** |
-| `UserJpaEntity` | JPA entity mapped to `user` table — **[planned]** |
-| `UserJpaRepository` | Spring Data `JpaRepository` — **[planned]** |
+| `UserPersistenceAdapter` | Implements `UserRepository` using Spring Data JPA |
+| `UserJpaEntity` | JPA entity mapped to `user` table |
+| `UserJpaRepository` | Spring Data `JpaRepository` |
+| `Argon2PasswordHasher` | Implements `PasswordHasher` using Argon2 |
 
 ### REST API
 
 | Method | Path | Status | Description |
 |---|---|---|---|
-| `POST` | `/api/auth/register` | ❌ planned | Register a new user; body: `{ "username": "...", "password": "..." }` |
-| `POST` | `/api/auth/login` | ❌ planned | Login; returns `{ "token": "..." }` |
+| `POST` | `/api/auth/register` | ✅ implemented | Register a new user; body: `{ "username": "...", "password": "..." }` |
+| `POST` | `/api/auth/login` | ✅ implemented | Login; returns `{ "token": "..." }` |
 | `GET` | `/api/todos` | ✅ implemented | Returns all todos for the authenticated user |
 | `POST` | `/api/todos` | ✅ implemented | Creates a new todo; body: `{ "title": "...", "dueDate": "..." }` |
 | `PATCH` | `/api/todos/{id}` | ✅ implemented | Toggle completed state |
@@ -245,7 +262,7 @@ The backend follows the **Ports & Adapters (Hexagonal) pattern**: business logic
 Page load
     │
     ▼
-auth.js — check localStorage for JWT token    [planned]
+auth.js — check localStorage for JWT token
     ├── no token  → show login/register UI
     └── has token → show todo UI
                         │
@@ -270,6 +287,12 @@ GET /api/todos → render() — rebuild DOM
     ▼
 Updated UI
 ```
+
+---
+
+## Planned — OAuth2 Login
+
+Next step: allow users to log in with a third-party provider (e.g., GitHub) via OAuth2 Authorization Code flow. The backend will accept the provider callback, resolve/create a local `User`, and issue the same JWT used by password login. Frontend `auth.js` will gain a "Log in with GitHub" button that redirects to the provider and handles the post-callback token storage.
 
 ---
 
