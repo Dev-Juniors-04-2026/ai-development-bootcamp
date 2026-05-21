@@ -2,7 +2,7 @@ import { Given } from '@cucumber/cucumber';
 
 Given('I am on the TODO main page', async function () {
   await this.page.goto(this.baseUrl);
-  await this.page.waitForSelector('#todo-input');
+  await this.page.locator('#todo-input').waitFor({ state: 'visible' });
 });
 
 Given('a TODO with the title {string} exists in the list', async function (title) {

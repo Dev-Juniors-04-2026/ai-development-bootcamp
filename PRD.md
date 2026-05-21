@@ -23,8 +23,7 @@ A simple, lightweight web-based TODO application that allows users to manage the
 
 ## 3. Non-Goals
 
-- User authentication or accounts
-- Cloud sync or multi-user support
+- Cloud sync or multi-user collaboration on shared lists
 - Mobile or desktop native apps
 - Advanced features such as priorities or tags
 
@@ -43,12 +42,23 @@ Anyone who needs a quick, no-setup task list in their browser — students, prof
 | Platform  | Web (browser) + REST backend |
 | Frontend  | Plain HTML/CSS/JS, no framework, no build tools |
 | Backend   | Spring Boot (Java 21), REST API at `/api/todos` |
-| Storage   | PostgreSQL via backend API (local); H2 in-memory for tests (CI and local test runs) |
-| Auth      | None |
+| Storage   | PostgreSQL via backend API; `localStorage` used temporarily until frontend-backend integration is complete |
+| Auth      | JWT Bearer tokens; stored in `localStorage` on the frontend; passwords hashed server-side |
 
 ---
 
 ## 6. Features & Requirements
+
+### 6.0 User Accounts & Authentication
+
+- A user can **register** with a username and password
+- A user can **log in** with their username and password and gains access to their personal TODO list
+- A user can **log out**, returning the app to the login screen
+- Each user sees only their own TODOs; todos are scoped per account
+- The login/register screen is shown when the user is not authenticated; the main TODO UI is shown after login
+- Unauthenticated access to the TODO list is not permitted
+
+---
 
 ### 6.1 View TODO List
 
@@ -89,11 +99,23 @@ Anyone who needs a quick, no-setup task list in their browser — students, prof
 
 ## 7. User Interface
 
-### Layout (single page)
+### Login / Register screen (shown when not authenticated)
 
 ```
 ┌────────────────────────────────────────────────┐
 │                 📝 TODO App                    │
+├────────────────────────────────────────────────┤
+│  [ Username ]                                  │
+│  [ Password ]                                  │
+│  [ Log in ]  [ Register ]                      │
+└────────────────────────────────────────────────┘
+```
+
+### Main TODO screen (shown after login)
+
+```
+┌────────────────────────────────────────────────┐
+│           📝 TODO App      [ Log out ]         │
 ├────────────────────────────────────────────────┤
 │  [ What needs to be done? ]  [Due date]  [Add] │
 ├────────────────────────────────────────────────┤
@@ -105,7 +127,7 @@ Anyone who needs a quick, no-setup task list in their browser — students, prof
 
 ### UI Rules
 
-- Single-page layout, no navigation or routing required
+- Single-page layout; auth and todo views toggled by JS (no page navigation)
 - Responsive width — readable on standard desktop browser windows
 - No external design system required; plain CSS is acceptable
 
@@ -113,14 +135,23 @@ Anyone who needs a quick, no-setup task list in their browser — students, prof
 
 ## 8. Data Model
 
-Each TODO item has the following structure (persisted via backend API):
+**User** (persisted via backend):
 
-| Field       | Type    | Description                          |
-|-------------|---------|--------------------------------------|
-| `id`        | string          | Unique identifier (e.g. UUID or timestamp) |
+| Field      | Type   | Description                        |
+|------------|--------|------------------------------------|
+| `id`       | UUID   | Unique identifier                  |
+| `username` | string | Chosen at registration; must be unique |
+| `password` | string | Stored hashed; never returned in API responses |
+
+**TODO item** (persisted via backend API; scoped to the owning user):
+
+| Field       | Type            | Description                          |
+|-------------|-----------------|--------------------------------------|
+| `id`        | UUID            | Unique identifier                    |
 | `title`     | string          | The task description entered by the user |
 | `completed` | boolean         | Whether the task has been checked off |
 | `dueDate`   | string \| null  | Optional due date in ISO 8601 format (e.g. `"2026-04-28"`); `null` if not set |
+| `userId`    | UUID            | References the owning user           |
 
 ---
 

@@ -18,24 +18,24 @@ public class TodoUseCaseImpl implements TodoUseCase {
     }
 
     @Override
-    public List<Todo> getAll() {
-        return repository.findAll();
+    public List<Todo> getAll(UUID userId) {
+        return repository.findAllByUserId(userId);
     }
 
     @Override
-    public Todo create(String title, String dueDate) {
-        return repository.save(new Todo(UUID.randomUUID(), title, false, dueDate));
+    public Todo create(UUID userId, String title, String dueDate) {
+        return repository.save(new Todo(UUID.randomUUID(), title, false, dueDate, userId));
     }
 
     @Override
-    public Todo toggle(UUID id) {
-        Todo todo = repository.findById(id).orElseThrow();
-        return repository.save(new Todo(todo.getId(), todo.getTitle(), !todo.isCompleted(), todo.getDueDate()));
+    public Todo toggle(UUID userId, UUID id) {
+        Todo todo = repository.findByIdAndUserId(id, userId).orElseThrow();
+        return repository.save(new Todo(todo.getId(), todo.getTitle(), !todo.isCompleted(), todo.getDueDate(), todo.getUserId()));
     }
 
     @Override
-    public void delete(UUID id) {
-        repository.findById(id).orElseThrow();
-        repository.deleteById(id);
+    public void delete(UUID userId, UUID id) {
+        repository.findByIdAndUserId(id, userId).orElseThrow();
+        repository.deleteByIdAndUserId(id, userId);
     }
 }

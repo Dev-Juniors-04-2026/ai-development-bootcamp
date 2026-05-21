@@ -25,20 +25,20 @@ public class TodoPersistenceAdapter implements TodoRepository {
     }
 
     @Override
-    public List<Todo> findAll() {
-        return jpaRepository.findAllByOrderByCreatedAtAsc().stream()
+    public List<Todo> findAllByUserId(UUID userId) {
+        return jpaRepository.findAllByUserIdOrderByCreatedAtAsc(userId).stream()
                 .map(this::toDomain)
                 .toList();
     }
 
     @Override
-    public Optional<Todo> findById(UUID id) {
-        return jpaRepository.findById(id).map(this::toDomain);
+    public Optional<Todo> findByIdAndUserId(UUID id, UUID userId) {
+        return jpaRepository.findByIdAndUserId(id, userId).map(this::toDomain);
     }
 
     @Override
-    public void deleteById(UUID id) {
-        jpaRepository.deleteById(id);
+    public void deleteByIdAndUserId(UUID id, UUID userId) {
+        jpaRepository.deleteByIdAndUserId(id, userId);
     }
 
     @Override
@@ -47,10 +47,10 @@ public class TodoPersistenceAdapter implements TodoRepository {
     }
 
     private TodoJpaEntity toEntity(Todo todo) {
-        return new TodoJpaEntity(todo.getId(), todo.getTitle(), todo.isCompleted(), todo.getDueDate());
+        return new TodoJpaEntity(todo.getId(), todo.getTitle(), todo.isCompleted(), todo.getDueDate(), todo.getUserId());
     }
 
     private Todo toDomain(TodoJpaEntity entity) {
-        return new Todo(entity.getId(), entity.getTitle(), entity.isCompleted(), entity.getDueDate());
+        return new Todo(entity.getId(), entity.getTitle(), entity.isCompleted(), entity.getDueDate(), entity.getUserId());
     }
 }

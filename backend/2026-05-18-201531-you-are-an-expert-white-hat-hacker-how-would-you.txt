@@ -1,0 +1,1315 @@
+Removed generated AI tooling transcript from version control.
+This file previously contained a local security-audit session log and should not
+be committed as repository content.
+     instance.
+
+     A01:2025 — Broken Access Control
+
+     - Re-read TodoController.java, TodoUseCaseImpl.java, SecurityConfig.java.
+     Confirm every todo op filters by userId from SecurityContext (already
+     verified: findByIdAndUserId, deleteByIdAndUserId).
+     - Probe IDOR: create two users A, B; have A create a todo; try PATCH/DELETE
+      /api/todos/{B's-id} with A's token → expect 404/403.
+     - Check /api/todos/reset — currently permitAll. Confirm it should be
+     disabled outside test profile.
+     - Path traversal / forced browsing: enumerate any permitAll routes in
+     SecurityConfig.
+
+     A02:2025 — Cryptographic Failures
+
+     - JwtService.java:14 — secret generated via Jwts.SIG.HS256.key().build() at
+      startup. Findings to confirm: (1) not persisted → tokens invalidated on
+     restart; (2) not externalized → can't rotate; (3) different per replica in
+     multi-instance deploy.
+     - Confirm JWT has no exp claim (so a stolen token is valid forever). Decode
+      a token to verify.
+     - Password hashing: Argon2id with 3 iter / 64 MiB / p=1 — OK per OWASP 2025
+      guidance.
+     - Check transport: application.properties / application.yml for any
+     HTTP-only assumptions; verify deployment forces TLS.
+
+     A03:2025 — Injection
+
+     - All DB access is Spring Data JPA derived queries — parameterized. Grep
+     for @Query, createNativeQuery, EntityManager to be sure.
+     - Frontend XSS: re-verify src/app.js uses textContent everywhere user
+     content is rendered; grep for innerHTML, insertAdjacentHTML,
+     document.write, eval.
+     - Log injection: grep log.*{} calls for unsanitized user input.
+
+     A04:2025 — Insecure Design
+
+     - Threat-model review: no rate limiting on /api/auth/login or /register →
+     credential stuffing / brute force possible. Confirm absence.
+     - No account lockout, no CAPTCHA, no MFA. Acceptable for a learning app but
+      flag it.
+     - Token-revocation design: with no exp and no revocation list, logout is
+     client-side only.
+
+     A05:2025 — Security Misconfiguration
+
+     - @CrossOrigin("*") on both controllers — too permissive. Should be a known
+      origin list.
+     - csrf.disable() — acceptable given pure-bearer auth, but document.
+     - GlobalExceptionHandler — verify it doesn't leak stack traces in 500
+     responses (read line ~62 and surrounding handlers).
+     - TestResetController exposed at /api/todos/reset with permitAll — must be
+     @Profile("test") or removed.
+     - Spring Boot Actuator: check pom.xml for spring-boot-starter-actuator; if
+     present, confirm endpoints aren't exposed.
+     - Security headers: confirm whether HttpSecurity adds CSP, X-Frame-Options,
+      HSTS (Spring defaults cover most, but CSP usually needs explicit config).
+
+     A06:2025 — Vulnerable & Outdated Components
+
+     - mvn -f backend/pom.xml dependency:tree then mvn 
+     org.owasp:dependency-check-maven:check (or mvn 
+     versions:display-dependency-updates) to flag CVEs / out-of-date libs.
+     - Spot-check: Spring Boot 4.0.6, jjwt 0.12.6, argon2-jvm 2.11 — all current
+      per exploration.
+     - npm audit on the frontend package.json (Playwright/Vitest dev deps only —
+      runtime is dependency-free).
+
+     A07:2025 — Identification & Authentication Failures
+
+     - UserUseCaseImpl.java:36 — same exception for unknown user vs. bad
+     password → no username enumeration via response. Verify response timing is 
+     also constant (Argon2 verify only runs on found users → timing oracle
+     possible). Probe: time /api/auth/login for known vs. unknown user.
+     - No password complexity rules beyond @NotBlank → weak passwords accepted.
+     Confirm.
+     - No login throttling — probe by scripting 100 rapid login attempts and
+     observing.
+     - JWT has no exp, no iat, no jti — confirm by base64-decoding payload.
+
+     A08:2025 — Software & Data Integrity Failures
+
+     - Check Maven build for unpinned plugin versions; check for <repositories>
+     pointing to non-HTTPS or untrusted mirrors in pom.xml.
+     - CI/CD: skim .github/workflows/ (if present) for unsigned artifact
+     publishing or pull_request_target misuse.
+     - Frontend has no SRI on script tags — all scripts are same-origin, so low
+     risk, but note.
+
+     A09:2025 — Security Logging & Monitoring Failures
+
+     - Grep for logging of auth failures, JWT validation failures, IDOR
+     attempts. Currently GlobalExceptionHandler logs generic errors only.
+     - No structured audit log of login success/failure → can't detect
+     brute-force in retrospect. Flag.
+
+     A10:2025 — Server-Side Request Forgery (SSRF)
+
+     - App makes no outbound HTTP from user input — grep for RestTemplate,
+     WebClient, HttpClient, URL.openConnection. Expected: none. Confirm.
+
+     Critical files to re-read during audit
+
+     - backend/.../adapter/in/http/SecurityConfig.java
+     - backend/.../adapter/in/http/JwtService.java
+     - backend/.../adapter/in/http/JwtFilter.java
+     - backend/.../adapter/in/http/AuthController.java
+     - backend/.../adapter/in/http/TodoController.java
+     - backend/.../adapter/in/http/GlobalExceptionHandler.java
+     - backend/.../adapter/in/http/TestResetController.java
+     - backend/.../application/UserUseCaseImpl.java
+     - backend/.../application/TodoUseCaseImpl.java
+     - backend/pom.xml
+     - backend/src/main/resources/application*.properties|yml
+     - src/app.js, src/auth.js, src/api.js, index.html
+
+     Verification (how the audit is "done")
+
+     1. Each of A01–A10 has an explicit Pass / Fail / N/A verdict with file:line
+      evidence.
+     2. Dynamic probes executed against a locally-running stack (docker-compose 
+     up + mvn spring-boot:run):
+       - IDOR probe across two users → expect denial.
+       - JWT decoded → confirm/deny exp claim.
+       - Login timing probe → known vs. unknown user.
+       - Burst-login probe → observe whether throttled.
+     3. mvn dependency-check report attached / summarized.
+     4. Final deliverable: a ranked findings list (Critical / High / Medium /
+     Low / Info) with concrete remediation suggestions — no code edits made.
+
+     Expected top findings (preview from exploration)
+
+     - High — JWT has no expiration; stolen token = lifetime access.
+     - High — JWT secret generated in-memory at startup; not externalized or
+     persisted.
+     - Medium — @CrossOrigin("*") on auth + todos.
+     - Medium — /api/todos/reset permitAll in production build.
+     - Medium — No login rate-limiting / account lockout.
+     - Low — Possible timing oracle for username enumeration on login.
+     - Low — Token in localStorage (XSS-exposed); inherent tradeoff for SPA.
+     - Info — No CSP / security-headers config; no audit logging of auth events.
+
+● I'll execute the static portion of the audit now and produce the ranked
+  findings. Skipping live probes unless you want them — say the word and I'll
+  spin up the stack.
+
+  Read 9 files, listed 1 directory (ctrl+o to expand)
+
+● Skipping task tracking — short audit. Here are the findings.
+
+  OWASP Top 10 (2025) Audit — TODO App
+
+  Static review complete. Verdicts below cite file:line. Dynamic probes (live
+  curl tests) are not yet executed; flag if you want me to spin up the stack and
+   run them.
+
+  ┌─────┬───────────────────────────┬──────────────────────┐
+  │ Cat │           Title           │       Verdict        │
+  ├─────┼───────────────────────────┼──────────────────────┤
+  │ A01 │ Broken Access Control     │ Pass (with caveats)  │
+  ├─────┼───────────────────────────┼──────────────────────┤
+  │ A02 │ Cryptographic Failures    │ Fail                 │
+  ├─────┼───────────────────────────┼──────────────────────┤
+  │ A03 │ Injection                 │ Pass                 │
+  ├─────┼───────────────────────────┼──────────────────────┤
+  │ A04 │ Insecure Design           │ Fail                 │
+  ├─────┼───────────────────────────┼──────────────────────┤
+  │ A05 │ Security Misconfiguration │ Fail                 │
+  ├─────┼───────────────────────────┼──────────────────────┤
+  │ A06 │ Vulnerable Components     │ Pass (probe pending) │
+  ├─────┼───────────────────────────┼──────────────────────┤
+  │ A07 │ Auth Failures             │ Fail                 │
+  ├─────┼───────────────────────────┼──────────────────────┤
+  │ A08 │ Integrity Failures        │ Pass (probe pending) │
+  ├─────┼───────────────────────────┼──────────────────────┤
+  │ A09 │ Logging & Monitoring      │ Fail                 │
+  ├─────┼───────────────────────────┼──────────────────────┤
+  │ A10 │ SSRF                      │ Pass / N/A           │
+  └─────┴───────────────────────────┴──────────────────────┘
+
+  Findings, ranked
+
+  🟥 HIGH — JWT has no expiration (JwtService.java:17-21)
+  Jwts.builder().subject(...).signWith(key).compact() issues a token with no 
+  exp, no iat, no jti. A stolen token is valid forever. There is no revocation
+  list either, so logout is purely client-side. A02 + A07.
+
+  🟥 HIGH — JWT signing key generated in-memory at startup (JwtService.java:14)
+  private final SecretKey key = Jwts.SIG.HS256.key().build(); — every restart
+  invalidates all tokens; multi-instance deploys would each sign with a
+  different key (tokens fail at random). The key is never externalized to
+  config/secret store, so it can't be rotated. A02.
+
+  🟧 MEDIUM — @CrossOrigin("*") on both controllers (AuthController.java:14,
+  TodoController.java:22)
+  Allows any origin to call the API from the browser. Combined with bearer auth
+  this is generally safe (no cookies), but it removes a defense-in-depth layer
+  (e.g., malicious site reading tokens returned by /api/auth/login after a
+  CSRF-style trick won't work due to bearer model, but custom-header pre-flight
+  bypass and post-XSS exfiltration become trivial). Lock to known origins. A05.
+
+  🟧 MEDIUM — No rate limiting / lockout on /api/auth/login or /register
+  (AuthController.java)
+  Credential stuffing and username enumeration brute force are unimpeded. Add
+  bucket4j, Spring's RateLimiter, or fronting reverse-proxy rules. A04 + A07.
+
+  🟧 MEDIUM — No password complexity policy (RegisterRequest.java,
+  UserUseCaseImpl.java:26-31)
+  Only @NotBlank. "a" is an acceptable password. OWASP ASVS 2025 recommends min
+  length 8 (12 preferred), block known-breached passwords (Have I Been Pwned
+  k-anonymity API). A07.
+
+  🟧 MEDIUM — Static resources expose repo parent directory in dev
+  (application.properties:13)
+  spring.web.resources.static-locations=classpath:/static/,file:../ serves the
+  entire repo root in dev. Security only permitAlls /, /index.html, /css/**,
+  /src/**, so unauthenticated reads of /backend/pom.xml get 401 — but any 
+  authenticated user can read /backend/src/main/java/.../JwtService.java,
+  /CLAUDE.md, /package-lock.json, etc., because anyRequest().authenticated()
+  permits them once a JWT is presented. Either tighten the static-locations
+  whitelist or change the security rule to deny non-whitelisted static paths.
+  A05.
+
+  🟨 LOW — Timing oracle on login (UserUseCaseImpl.java:35-39)
+  For unknown users we throw immediately; for known users we run Argon2 verify
+  (~50-100 ms). The response-time difference reveals whether a username exists.
+  Run Argon2 against a fixed dummy hash for missing users to equalize timing.
+  A07.
+
+  🟨 LOW — register endpoint auto-issues a token without separate login
+  (AuthController.java:29-33)
+  Calls authenticate(...) right after register, doubling the Argon2 cost and
+  conflating registration with login. Functional, but if registration ever
+  becomes admin-gated it'd silently grant a token. Minor design smell. A04.
+
+  🟨 LOW — Token in localStorage (src/auth.js)
+  XSS-exfiltratable. Acceptable for an SPA without HttpOnly cookies, but worth
+  pairing with strong CSP. A02.
+
+  🟦 INFO — No security headers configured
+  SecurityConfig sets no CSP, HSTS, Referrer-Policy, or Permissions-Policy.
+  Spring defaults give X-Content-Type-Options + X-Frame-Options DENY, but CSP is
+   the big XSS mitigator and is missing. A05.
+
+  🟦 INFO — No audit log of auth events
+  GlobalExceptionHandler.java:62 logs only the catch-all 500. No structured log
+  for login success, login failure, JWT validation failure (JwtFilter.java:39-41
+   silently 401s), IDOR attempts. No way to detect brute-force in retrospect.
+  A09.
+
+  🟦 INFO — /api/todos/reset permitted in SecurityConfig
+  (SecurityConfig.java:47)
+  Harmless because TestResetController is @Profile("test") (line 10) so the
+  route isn't registered outside tests — but the permitAll rule shouldn't live
+  in production config. Move it to a test-only SecurityFilterChain. A05.
+
+  Confirmed PASSING controls
+
+  - No IDOR — every todo op scopes by userId from SecurityContextHolder; repo
+  methods are findByIdAndUserId / deleteByIdAndUserId. A01.
+  - Password hashing — Argon2id with 3 iter / 64 MiB / p=1, plaintext zeroed
+  after use. Meets OWASP 2025 guidance. A02.
+  - SQL injection — 100% Spring Data derived queries, no @Query / native SQL /
+  string concatenation. A03.
+  - XSS — frontend uses textContent + createElement; no innerHTML with user
+  data. A03.
+  - CSRF disable — correct given pure-bearer auth, no cookies. A05.
+  - SSRF — no outbound HTTP from user input anywhere. A10.
+  - Same response for unknown user vs. wrong password — message identical
+  (InvalidCredentialsException). Username enumeration via response body blocked
+  (though timing oracle remains — see Low above). A07.
+
+  Recommended next moves
+
+  1. Fix the two HIGHs first: add exp (and iat, jti) to JWT, externalize the
+  signing key via application.properties + env var.
+  2. Add login rate-limiting and password complexity.
+  3. Tighten static-locations and CORS.
+  4. Add CSP + structured auth-event logging.
+
+  Want me to run the dynamic probes (IDOR cross-user test, timing measurement,
+  JWT decode, npm audit, mvn versions:display-dependency-updates) against a live
+   instance?
+
+✻ Brewed for 3m 7s
+
+❯ Sure                                                                          
+
+  Read 1 file (ctrl+o to expand)
+
+● Bash((curl -s -o /dev/null -w "backend:%{http_code}\n"
+      http://localhost:8080/api/todos 2>&1; docker ps 2>/dev/null | head -5))
+  ⎿  backend:000
+
+● Bash(docker compose up -d 2>&1 | tail -20)
+  ⎿  unable to get image 'postgres:17': permission denied while trying to c
+     onnect to the docker API at unix:///var/run/docker.sock
+
+● Bash(id -nG | tr ' ' '\n' | grep -i docker; ls -la /var/run/docker.sock 2>&1)
+  ⎿  Error: Exit code 2
+     ls: cannot access '/var/run/docker.sock': No such file or directory
+
+● Docker isn't accessible from my sandbox. To run live probes, please start the
+  stack yourself, then I'll execute the tests. In your terminal:
+
+  ! docker compose up -d
+
+  (the ! prefix runs it in this session so I see the output). Once it's up and
+  curl http://localhost:8080/api/todos returns 401, tell me and I'll run the
+  probes.
+
+  While we wait, I can still do the static/dependency portions that don't need a
+   live server:
+
+● Bash(cd backend && ./mvnw -q versions:display-dependency-updates
+      -DprocessDependencyManagement=false 2>&1 | tail -40)
+  ⎿  Interrupted · What should Claude do instead?
+
+● Bash(npm audit --omit=dev 2>&1 | tail -20; echo "---ALL---"; npm audit 2>&1 |
+      tail -15)
+  ⎿  Interrupted · What should Claude do instead?
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+!  docker compose up -d                                                         
+  ⎿  unable to get image 'postgres:17': permission denied while trying to 
+     connect to the docker API at unix:///var/run/docker.sock
+
+※ recap: Auditing the TODO app against OWASP Top 10 (2025); static review is done with findings reported (two HIGHs: JWT has no expiration, signing key is in-memory). Next action: await your go-ahead to run live dynamic probes. (disable recaps in /config)
+
+❯ I've started docker in separate terminal                                      
+
+● Bash(curl -s -o /dev/null -w "HTTP %{http_code}\n"
+      http://localhost:8080/api/todos)
+  ⎿  Error: Exit code 7
+     HTTP 000
+
+● Not reachable yet — exit 7 (connection refused). The app container is likely
+  still booting. Let me wait briefly then poll.
+
+● Bash(until curl -s -o /dev/null -w "" --max-time 2
+      http://localhost:8080/api/todos; do sleep 3; done; curl -s -o /dev/null -w
+       "READY HTTP %{http_code}\n" http://loca…)
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ It has booted.                                                                
+
+● Bash(set -e
+      BASE=http://localhost:8080…)
+  ⎿  Error: Exit code 1
+     Traceback (most recent call last):
+       File "<string>", line 1, in <module>
+       File "/usr/lib/python3.12/json/__init__.py", line 293, in load
+         return loads(fp.read(),
+                ^^^^^^^^^^^^^^^^
+       File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
+         return _default_decoder.decode(s)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^
+       File "/usr/lib/python3.12/json/decoder.py", line 337, in decode
+     … +22 lines (ctrl+o to expand)
+
+● Bash(curl -s -X POST http://localhost:8080/api/auth/register -H 'Content-Type:
+       application/json' -d '{"username":"probe1","password":"password123"}';
+      echo)
+  ⎿  Interrupted · What should Claude do instead?
+
+  Read 1 file (ctrl+o to expand)
+
+❯ Just try and fix the found security errors                                    
+
+● I'll fix the actionable security issues now. Skipping rate-limiting (needs new
+   dependency + infra design). Plan:
+
+  1. JWT exp + externalized secret (HIGH×2)
+  2. Lock down CORS (MEDIUM)
+  3. Password min length 8 (MEDIUM)
+  4. Tighten static-locations whitelist (MEDIUM)
+  5. Constant-time login (LOW — timing oracle)
+  6. Move /api/todos/reset permitAll into test-profile config (INFO)
+  7. Add CSP + basic security headers (INFO)
+
+  Read 5 files (ctrl+o to expand)
+
+● Now making the fixes:
+
+  Fix 1+2: JWT — add expiration + externalize secret
+
+● Write(src/main/java/com/example/todoapp/adapter/in/http/JwtService.java)
+  ⎿  Added 17 lines, removed 1 line
+       2  
+       3  import com.example.todoapp.domain.model.AuthenticatedUser;
+       4  import io.jsonwebtoken.Jwts;
+       5 +import io.jsonwebtoken.io.Decoders;                            
+       6  import io.jsonwebtoken.security.Keys;
+       7 +import org.springframework.beans.factory.annotation.Value;     
+       8  import org.springframework.stereotype.Component;
+       9  
+      10  import javax.crypto.SecretKey;
+      11 +import java.time.Duration;                                     
+      12 +import java.time.Instant;                                      
+      13 +import java.util.Date;                                         
+      14  import java.util.UUID;
+      15  
+      16  @Component
+      17  public class JwtService {
+      18  
+      14 -    private final SecretKey key = Jwts.SIG.HS256.key().build();
+      19 +    private final SecretKey key;                               
+      20 +    private final Duration ttl;                                
+      21  
+      22 +    public JwtService(                                         
+      23 +            @Value("${app.security.jwt.secret}") String base64S
+         +ecret,                                                         
+      24 +            @Value("${app.security.jwt.ttl-minutes:60}") long t
+         +tlMinutes) {                                                   
+      25 +        this.key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(ba
+         +se64Secret));                                                  
+      26 +        this.ttl = Duration.ofMinutes(ttlMinutes);             
+      27 +    }                                                          
+      28 +                                                               
+      29      public String issue(AuthenticatedUser user) {
+      30 +        Instant now = Instant.now();                           
+      31          return Jwts.builder()
+      32                  .subject(user.getId().toString())
+      33 +                .issuedAt(Date.from(now))                      
+      34 +                .expiration(Date.from(now.plus(ttl)))          
+      35                  .signWith(key)
+      36                  .compact();
+      37      }
+
+❯ but explain the reasoning behind changing how the SecretKey is built          
+
+● Why the SecretKey construction changed
+
+  Before:
+  private final SecretKey key = Jwts.SIG.HS256.key().build();
+  This asks jjwt to generate a fresh random key every time the class is
+  instantiated — i.e. on every JVM start. Three consequences:
+
+  1. All tokens invalidate on restart. Tokens issued before a restart can't be
+  verified after, because the key that signed them no longer exists. Users get
+  logged out every time you redeploy.
+  2. Multi-instance deploys are broken. If you run two replicas behind a load
+  balancer, each generates its own key. A login on replica A produces a token
+  that replica B rejects with 401 — auth becomes a coin flip per request.
+  3. The key can't be rotated, revoked, or audited. It exists only in process
+  memory. Ops has no way to roll it after a leak, and no way to share it across
+  services that legitimately need to verify tokens.
+
+  After:
+  public JwtService(@Value("${app.security.jwt.secret}") String base64Secret, 
+  ...) {
+      this.key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(base64Secret));
+      ...
+  }
+
+  The key is now loaded from configuration, which means it lives in
+  application.properties / env var / secret manager — outside the code and
+  outside process memory.
+
+  - @Value("${app.security.jwt.secret}") — Spring injects the property; the env
+  var JWT_SECRET overrides it via the standard Spring property resolution.
+  Production gets the secret from a vault/secret manager; dev gets a fallback
+  default.
+  - Decoders.BASE64.decode(...) — the property is Base64-encoded because HMAC
+  keys are raw bytes, and properties files are text. Base64 is the conventional,
+   safe way to embed binary in text config.
+  - Keys.hmacShaKeyFor(byte[]) — jjwt's strict constructor. It enforces the 
+  minimum key length for the algorithm (≥256 bits / 32 bytes for HS256, per RFC
+  7518 §3.2). If someone configures a short secret like "hunter2", this throws
+  at startup instead of silently signing with a weak key. That's a feature: fail
+   loud on misconfiguration, never produce a weak signature.
+
+  Why not just new SecretKeySpec(bytes, "HmacSHA256")? That works, but it skips
+  the length check — you can sign with a 4-byte key and never know.
+  Keys.hmacShaKeyFor is jjwt's recommended path for exactly this reason.
+
+  The tradeoff you're accepting: the secret is now a thing ops has to manage
+  (rotation, secure storage, env injection). That's the correct tradeoff — it
+  converts "everyone gets logged out on every deploy" + "can't scale
+  horizontally" into "set one env var." The next step is making sure the
+  production deploy actually injects JWT_SECRET from a secret manager rather
+  than the dev default in application.properties.
+
+  Want me to continue with the rest of the fixes (CORS, password min length,
+  static-locations, timing oracle, security headers, and the
+  application.properties config)?
+
+✻ Worked for 1m 45s
+
+※ recap: We're fixing OWASP findings in the Spring Boot todo app; JWT now has expiration and an externalized Base64 secret. Next: add `app.security.jwt.secret` to application.properties so the app starts. (disable recaps in /config)
+
+❯ Can test token expiration be tested?                                          
+
+● Yes — three viable approaches, with different tradeoffs:
+
+  Option 1: Short TTL via test property (zero code change)
+
+  Set app.security.jwt.ttl-minutes to a tiny value in a test slice and
+  Thread.sleep past it.
+
+  @SpringBootTest(properties = {
+      "app.security.jwt.secret=dGVzdC1zZWNyZXQtMzItYnl0ZXMtbG9uZy1mb3ItaG1hYy1za
+  GEyNTYtdGVzdHM=",
+      "app.security.jwt.ttl-minutes=0"  // expires immediately
+  })
+  class JwtExpirationTest {
+      @Autowired JwtService jwt;
+
+      @Test
+      void expiredTokenIsRejected() throws InterruptedException {
+          String token = jwt.issue(new AuthenticatedUser(UUID.randomUUID(),
+  "alice"));
+          Thread.sleep(1100); // jjwt allows a default clock-skew; sleep past it
+          assertThrows(ExpiredJwtException.class, () -> jwt.verify(token));
+      }
+  }
+  Pros: no production code change. Cons: flaky if CI is slow; sleeps in tests
+  are smelly; ttl-minutes=0 is awkward (would need to change the unit to seconds
+   or accept fractional minutes).
+
+  Option 2: Inject a Clock (recommended)
+
+  Refactor JwtService to take a java.time.Clock. Production gets
+  Clock.systemUTC() via a @Bean; tests pass a mutable Clock.fixed(...) or a
+  small "test clock" they can advance. jjwt parser also accepts a custom Clock
+  via .clock(...).
+
+  public JwtService(
+          @Value("${app.security.jwt.secret}") String base64Secret,
+          @Value("${app.security.jwt.ttl-minutes:60}") long ttlMinutes,
+          Clock clock) {
+      this.key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(base64Secret));
+      this.ttl = Duration.ofMinutes(ttlMinutes);
+      this.clock = clock;
+  }
+
+  public String issue(AuthenticatedUser user) {
+      Instant now = clock.instant();
+      return Jwts.builder()
+              .subject(user.getId().toString())
+              .issuedAt(Date.from(now))
+              .expiration(Date.from(now.plus(ttl)))
+              .signWith(key)
+              .compact();
+  }
+
+  public UUID verify(String token) {
+      String subject = Jwts.parser()
+              .verifyWith(key)
+              .clock(() -> Date.from(clock.instant()))  // jjwt uses this for 
+  exp check
+              .build()
+              .parseSignedClaims(token)
+              .getPayload()
+              .getSubject();
+      return UUID.fromString(subject);
+  }
+
+  Test:
+  @Test
+  void expiredTokenIsRejected() {
+      Clock t0 = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"),
+  ZoneOffset.UTC);
+      JwtService issuer = new JwtService(SECRET_B64, 60, t0);
+      String token = issuer.issue(new AuthenticatedUser(UUID.randomUUID(),
+  "alice"));
+
+      Clock t1 = Clock.offset(t0, Duration.ofMinutes(61));
+      JwtService verifier = new JwtService(SECRET_B64, 60, t1);
+      assertThrows(ExpiredJwtException.class, () -> verifier.verify(token));
+  }
+  Pros: deterministic, fast, no sleep. Cons: small refactor; touches production
+  code purely for testability — but Clock injection is a widely accepted
+  pattern, not test-only scaffolding.
+
+  Option 3: Forge an expired token directly with jjwt
+
+  Build a token in the test using the same secret but a past expiration(...),
+  then call verify. No production refactor.
+
+  @Test
+  void expiredTokenIsRejected() {
+      String token = Jwts.builder()
+              .subject(UUID.randomUUID().toString())
+              .expiration(Date.from(Instant.now().minusSeconds(60)))
+              .signWith(testKey)
+              .compact();
+      assertThrows(ExpiredJwtException.class, () -> jwt.verify(token));
+  }
+  Pros: zero refactor, deterministic, fast. Cons: the test duplicates jjwt
+  builder logic, so it doesn't really verify your issue(...) writes an exp claim
+   — only that verify(...) rejects expired tokens. You'd want a paired test that
+   decodes a freshly-issued token and asserts exp is present and ~`ttl` in the
+  future.
+
+  My recommendation
+
+  Combine #3 + a claim-assertion test, unless you're already comfortable adding
+  Clock injection elsewhere — in which case #2 is best because it composes with
+  any future time-dependent code (token refresh, "remember me", scheduled
+  cleanups). #1 is the worst of the three: a flaky sleep that proves the least.
+
+  Want me to wire up #3 plus a "freshly-issued token has exp ≈ now + ttl"
+  assertion?
+
+✻ Worked for 30s
+
+❯ yes, wire it up                                                               
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● The existing tests use the old no-arg constructor — they're already broken. I
+  need to update them and add the expiration tests.
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Good — only one place. Now wiring up the new tests:
+● Write(src/test/java/com/example/todoapp/adapter/in/http/JwtServiceTest.java)
+  ⎿  Added 48 lines, removed 1 line
+       1  package com.example.todoapp.adapter.in.http;
+       2  
+       3  import com.example.todoapp.domain.model.AuthenticatedUser;
+       4 +import io.jsonwebtoken.ExpiredJwtException;                    
+       5 +import io.jsonwebtoken.Jwts;                                   
+       6 +import io.jsonwebtoken.io.Decoders;                            
+       7 +import io.jsonwebtoken.security.Keys;                          
+       8  import org.junit.jupiter.api.Test;
+       9  
+      10 +import javax.crypto.SecretKey;                                 
+      11 +import java.time.Instant;                                      
+      12 +import java.util.Date;                                         
+      13  import java.util.UUID;
+      14  
+      15  import static org.junit.jupiter.api.Assertions.assertEquals;
+     ...
+      19  
+      20  class JwtServiceTest {
+      21  
+      15 -    private final JwtService jwtService = new JwtService();    
+      22 +    // 32 random bytes, Base64-encoded — meets HS256 minimum (2
+         +56 bits).                                                      
+      23 +    private static final String SECRET_B64 =                   
+      24 +            "dGVzdC1zZWNyZXQtMzItYnl0ZXMtbG9uZy1mb3ItaG1hYy1zaG
+         +EyNTYh";                                                       
+      25 +    private static final long TTL_MINUTES = 60;                
+      26  
+      27 +    private final JwtService jwtService = new JwtService(SECRET
+         +_B64, TTL_MINUTES);                                            
+      28 +                                                               
+      29      @Test
+      30      void issue_returnsNonEmptyToken() {
+      31          AuthenticatedUser user = new AuthenticatedUser(UUID.ran
+          domUUID(), "alice");
+     ...
+      55      void verify_emptyToken_throws() {
+      56          assertThrows(RuntimeException.class, () -> jwtService.v
+          erify(""));
+      57      }
+      58 +                                                               
+      59 +    @Test                                                      
+      60 +    void issuedToken_hasExpirationApproximatelyNowPlusTtl() {  
+      61 +        Instant before = Instant.now();                        
+      62 +        String token = jwtService.issue(new AuthenticatedUser(U
+         +UID.randomUUID(), "alice"));                                   
+      63 +        Instant after = Instant.now();                         
+      64 +                                                               
+      65 +        SecretKey key = Keys.hmacShaKeyFor(Decoders.BASE64.deco
+         +de(SECRET_B64));                                               
+      66 +        Date exp = Jwts.parser()                               
+      67 +                .verifyWith(key)                               
+      68 +                .build()                                       
+      69 +                .parseSignedClaims(token)                      
+      70 +                .getPayload()                                  
+      71 +                .getExpiration();                              
+      72 +                                                               
+      73 +        assertNotNull(exp, "token must carry an exp claim");   
+      74 +        Instant earliestExpected = before.plusSeconds(TTL_MINUT
+         +ES * 60);                                                      
+      75 +        Instant latestExpected = after.plusSeconds(TTL_MINUTES 
+         +* 60);                                                         
+      76 +        assertTrue(                                            
+      77 +                !exp.toInstant().isBefore(earliestExpected) && 
+         +!exp.toInstant().isAfter(latestExpected),                      
+      78 +                () -> "exp " + exp.toInstant() + " not within [
+         +" + earliestExpected + ", " + latestExpected + "]");           
+      79 +    }                                                          
+      80 +                                                               
+      81 +    @Test                                                      
+      82 +    void verify_expiredToken_throws() {                        
+      83 +        SecretKey key = Keys.hmacShaKeyFor(Decoders.BASE64.deco
+         +de(SECRET_B64));                                               
+      84 +        String expiredToken = Jwts.builder()                   
+      85 +                .subject(UUID.randomUUID().toString())         
+      86 +                .issuedAt(Date.from(Instant.now().minusSeconds(
+         +3600)))                                                        
+      87 +                .expiration(Date.from(Instant.now().minusSecond
+         +s(60)))                                                        
+      88 +                .signWith(key)                                 
+      89 +                .compact();                                    
+      90 +                                                               
+      91 +        assertThrows(ExpiredJwtException.class, () -> jwtServic
+         +e.verify(expiredToken));                                       
+      92 +    }                                                          
+      93  }
+
+● Bash(cd backend && ./mvnw -q test -Dtest=JwtServiceTest 2>&1 | tail -40)
+  ⎿  Interrupted · What should Claude do instead?
+
+※ recap: We're hardening the TODO app against OWASP Top 10; JWT now has expiration and an externalized secret. Next: write a test that an expired token is rejected. (disable recaps in /config)
+
+❯ Tests run: 6, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.297 s <<<   
+  FAILURE! -- in com.example.todoapp.adapter.in.http.JwtServiceTest             
+  [ERROR] com.example.todoapp.adapter.in.http.JwtServiceTest.issuedToken_hasExp 
+  irationApproximatelyNowPlusTtl -- Time elapsed: 0.010 s <<< FAILURE!          
+  org.opentest4j.AssertionFailedError: exp 2026-05-18T18:16:54Z not within      
+  [2026-05-18T18:16:54.209600619Z, 2026-05-18T18:16:54.209989902Z] ==>          
+  expected: <true> but was: <false>                                             
+          at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailu 
+  reBuilder.java:158)                                                           
+          at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(Assert 
+  ionFailureBuilder.java:139)                                                   
+          at org.junit.jupiter.api.AssertTrue.failNotTrue(AssertTrue.java:69)   
+          at org.junit.jupiter.api.AssertTrue.assertTrue(AssertTrue.java:48)    
+          at org.junit.jupiter.api.Assertions.assertTrue(Assertions.java:204)   
+          at com.example.todoapp.adapter.in.http.JwtServiceTest.issuedToken_has 
+  ExpirationApproximatelyNowPlusTtl(JwtServiceTest.java:76)                     
+                                                                                
+  [INFO]                                                                        
+  [INFO] Results:                                                               
+  [INFO]                                                                        
+  [ERROR] Failures:                                                             
+  [ERROR]   JwtServiceTest.issuedToken_hasExpirationApproximatelyNowPlusTtl:76  
+  exp 2026-05-18T18:16:54Z not within [2026-05-18T18:16:54.209600619Z,          
+  2026-05-18T18:16:54.209989902Z] ==> expected: <true> but was: <false>         
+  [INFO]                                                                        
+  [ERROR] Tests run: 6, Failures: 1, Errors: 0, Skipped: 0                      
+  [INFO]                                                                        
+  [INFO]                                                                        
+  ------------------------------------------------------------------------      
+  [INFO] BUILD FAILURE                                                          
+  [INFO]                                                                        
+  ------------------------------------------------------------------------      
+  [INFO] Total time:  3.399 s                                                   
+  [INFO] Finished at: 2026-05-18T19:16:54+02:00                                 
+  [INFO] ---------------------------------------------                          
+
+● JWT exp is stored as whole seconds; my nanosecond bounds were too tight.
+  Widening the window by ±1s.
+
+● Update(src/test/java/com/example/todoapp/adapter/in/http/JwtServiceTest.java)
+  ⎿  Added 3 lines, removed 2 lines
+      71                  .getExpiration();
+      72  
+      73          assertNotNull(exp, "token must carry an exp claim");
+      74 -        Instant earliestExpected = before.plusSeconds(TTL_MINUT
+         -ES * 60);                                                      
+      75 -        Instant latestExpected = after.plusSeconds(TTL_MINUTES 
+         -* 60);                                                         
+      74 +        // JWT exp is serialized to whole seconds, so widen the
+         + window by 1s on each side.                                    
+      75 +        Instant earliestExpected = before.plusSeconds(TTL_MINUT
+         +ES * 60 - 1);                                                  
+      76 +        Instant latestExpected = after.plusSeconds(TTL_MINUTES 
+         +* 60 + 1);                                                     
+      77          assertTrue(
+      78                  !exp.toInstant().isBefore(earliestExpected) && 
+          !exp.toInstant().isAfter(latestExpected),
+      79                  () -> "exp " + exp.toInstant() + " not within [
+          " + earliestExpected + ", " + latestExpected + "]");
+
+● Re-run the test suite to confirm.
+
+✻ Cogitated for 18s
+
+❯ Find all places in code that need to be updated now that tokens expire        
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● Here's the impact map.
+
+  Places affected by tokens-now-expire
+
+  🟥 Must fix — app/tests won't start without these
+
+  1. backend/src/main/resources/application.properties — needs
+  app.security.jwt.secret and app.security.jwt.ttl-minutes properties (with
+  env-var override). Without it, Spring throws IllegalArgumentException: Could 
+  not resolve placeholder 'app.security.jwt.secret' at boot.
+  2. backend/src/main/resources/application-test.properties — same property
+  needed, otherwise TodoappApplicationTests (@SpringBootTest) fails to
+  bootstrap. @WebMvcTest tests are OK because they @MockBean JwtService and
+  never invoke the real constructor.
+  3. docker-compose.yml — pass JWT_SECRET (and optionally JWT_TTL_MINUTES) to
+  the app service so the container doesn't fall back to a dev default that ends
+  up in "prod".
+
+  🟧 Should fix — broken UX after a token expires
+
+  4. src/api.js — every request just throws Error("... failed: 401"). After
+  expiration, every fetch fails silently and the UI stays "logged-in-looking"
+  but non-functional. Need to detect 401, clear localStorage.token, and signal a
+   re-login.
+  5. src/auth.js — on page load, localStorage.getItem('token') is trusted
+  blindly (line 27). If the stored token is expired, the user sees the todo UI
+  flash, then everything 401s. Either ping the API to validate, or react to the
+  401 from #4 and route back to the login screen.
+
+  🟨 Optional polish
+
+  6. JwtFilter.java:39-41 — currently catches RuntimeException and returns a
+  plain 401 with no body. Clients can't tell "expired" from "malformed". Could
+  return a WWW-Authenticate: Bearer error="invalid_token", 
+  error_description="expired" header so frontend reacts more precisely. Low
+  priority.
+  7. Cucumber e2e tests (features/step_definitions/*.js) — fine as long as a
+  suite run finishes within the TTL (default 60 min). No change needed unless
+  you ever ratchet TTL down for testing.
+
+  ✅ Already safe (no change needed)
+
+  - AuthController — only calls issue(), no expiration logic.
+  - AuthControllerTest, JwtFilterTest, GlobalExceptionHandlerTest,
+  TodoControllerTest — all @MockBean JwtService, so the real constructor never
+  runs.
+  - JwtServiceTest — already updated.
+  - SecurityConfig — injects JwtService as a bean; Spring will fail clearly if
+  config is missing (caught by #1/#2).
+
+  ---
+  My recommendation: do #1, #2, #3 now (one-line config changes — the app
+  literally doesn't start otherwise), then #4/#5 as a small follow-up since
+  they're a user-visible regression introduced by the security fix. Skip #6
+  unless you want it.
+
+  Want me to wire up #1–#3 now, and then #4–#5?
+
+✻ Sautéed for 58s
+
+※ recap: Goal: fix the OWASP findings in this Spring Boot todo app, starting with JWT security. JWT expiration is now wired and tested; next is adding the JWT secret config to application.properties, application-test.properties, and docker-compose.yml so the app boots.
+
+❯ yes, wire up 1-3 then 4-5                                                     
+
+  Read 4 files (ctrl+o to expand)
+
+● Wiring up. Skipping task tracking — focused edit set.
+
+  #1 application.properties
+
+● Update(src/main/resources/application.properties)
+  ⎿  Added 7 lines
+      11  # and prod without copying files. Do NOT add file:./ — it would
+           expose
+      12  # backend/src/main/java/... at /src/**.
+      13  spring.web.resources.static-locations=classpath:/static/,file:.
+          ./
+      14 +                                                               
+      15 +# JWT signing key (Base64-encoded HMAC-SHA256 key, min 32 raw b
+         +ytes).                                                         
+      16 +# Production MUST inject JWT_SECRET via env/secret manager. The
+         + default below decodes                                         
+      17 +# to "INSECURE-DEV-ONLY-default-secret-do-not-use-in-prod" and 
+         +exists only so local                                           
+      18 +# `mvn spring-boot:run` works without extra setup. Never ship t
+         +his default to prod.                                           
+      19 +app.security.jwt.secret=${JWT_SECRET:SU5TRUNVUkUtREVWLU9OTFktZG
+         +VmYXVsdC1zZWNyZXQtZG8tbm90LXVzZS1pbi1wcm9k}                    
+      20 +app.security.jwt.ttl-minutes=${JWT_TTL_MINUTES:60}             
+
+● #2 application-test.properties
+
+● Update(src/main/resources/application-test.properties)
+  ⎿  Added 2 lines
+      5  spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
+      6  spring.jpa.hibernate.ddl-auto=create-drop
+      7  spring.flyway.enabled=false
+      8 +app.security.jwt.secret=dGVzdC1zZWNyZXQtMzItYnl0ZXMtbG9uZy1mb3It
+        +aG1hYy1zaGEyNTYh                                                
+      9 +app.security.jwt.ttl-minutes=60                                 
+
+● #3 docker-compose.yml
+
+● Update(~/ai-development-bootcamp/docker-compose.yml)
+  ⎿  Added 4 lines
+      25        SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/todoapp
+      26        SPRING_DATASOURCE_USERNAME: postgres
+      27        SPRING_DATASOURCE_PASSWORD: postgres
+      28 +      # Override via host env: `JWT_SECRET=$(openssl rand -base
+         +64 32) docker compose up`.                                     
+      29 +      # If unset, app falls back to the insecure dev default in
+         + application.properties.                                       
+      30 +      JWT_SECRET: ${JWT_SECRET:-}                              
+      31 +      JWT_TTL_MINUTES: ${JWT_TTL_MINUTES:-60}                  
+      32      depends_on:
+      33        db:
+      34          condition: service_healthy
+
+● Fixing the docker-compose default — empty-string would break Spring's
+  placeholder resolution:
+
+● Update(~/ai-development-bootcamp/docker-compose.yml)
+  ⎿  Added 1 line, removed 1 line
+      27        SPRING_DATASOURCE_PASSWORD: postgres
+      28        # Override via host env: `JWT_SECRET=$(openssl rand -base
+          64 32) docker compose up`.
+      29        # If unset, app falls back to the insecure dev default in
+           application.properties.
+      30 -      JWT_SECRET: ${JWT_SECRET:-}                              
+      30 +      JWT_SECRET: ${JWT_SECRET:-SU5TRUNVUkUtREVWLU9OTFktZGVmYXV
+         +sdC1zZWNyZXQtZG8tbm90LXVzZS1pbi1wcm9k}                         
+      31        JWT_TTL_MINUTES: ${JWT_TTL_MINUTES:-60}
+      32      depends_on:
+      33        db:
+
+● #4 + #5: Frontend 401 handling
+
+● Write(~/ai-development-bootcamp/src/api.js)
+  ⎿  Added 21 lines, removed 4 lines
+       1  const BASE = '';
+       2  
+       3  let _token = null;
+       4 +let _onUnauthorized = null;                                    
+       5  
+       6  export function setToken(token) {
+       7    _token = token;
+       8  }
+       9  
+      10 +export function setOnUnauthorized(handler) {                   
+      11 +  _onUnauthorized = handler;                                   
+      12 +}                                                              
+      13 +                                                               
+      14  function authHeaders() {
+      15    return {
+      16      'Content-Type': 'application/json',
+     ...
+      18    };
+      19  }
+      20  
+      21 +// Centralizes 401 handling: token is invalid (expired, revoked
+         +, tampered), so we                                             
+      22 +// drop it and let the auth module return the user to the login
+         + screen.                                                       
+      23 +function ensureOk(res, label) {                                
+      24 +  if (res.status === 401) {                                    
+      25 +    _token = null;                                             
+      26 +    if (_onUnauthorized) _onUnauthorized();                    
+      27 +    throw new Error(`${label} unauthorized`);                  
+      28 +  }                                                            
+      29 +  if (!res.ok) throw new Error(`${label} failed: ${res.status}`
+         +);                                                             
+      30 +  return res;                                                  
+      31 +}                                                              
+      32 +                                                               
+      33  export async function fetchTodos() {
+      34    const res = await fetch(`${BASE}/api/todos`, { headers: authH
+          eaders() });
+      18 -  if (!res.ok) throw new Error(`GET /api/todos failed: ${res.st
+         -atus}`);                                                       
+      35 +  ensureOk(res, 'GET /api/todos');                             
+      36    return res.json();
+      37  }
+      38  
+     ...
+      44      headers: authHeaders(),
+      45      body: JSON.stringify(body),
+      46    });
+      30 -  if (!res.ok) throw new Error(`POST /api/todos failed: ${res.s
+         -tatus}`);                                                      
+      47 +  ensureOk(res, 'POST /api/todos');                            
+      48    return res.json();
+      49  }
+      50  
+      51  export async function toggleTodo(id) {
+      52    const res = await fetch(`${BASE}/api/todos/${id}`, { method: 
+          'PATCH', headers: authHeaders() });
+      36 -  if (!res.ok) throw new Error(`PATCH /api/todos/${id} failed: 
+         -${res.status}`);                                               
+      53 +  ensureOk(res, `PATCH /api/todos/${id}`);                     
+      54    return res.json();
+      55  }
+      56  
+      57  export async function deleteTodo(id) {
+      58    const res = await fetch(`${BASE}/api/todos/${id}`, { method: 
+          'DELETE', headers: authHeaders() });
+      42 -  if (!res.ok) throw new Error(`DELETE /api/todos/${id} failed:
+         - ${res.status}`);                                              
+      59 +  ensureOk(res, `DELETE /api/todos/${id}`);                    
+      60  }
+● Update(~/ai-development-bootcamp/src/auth.js)
+  ⎿  Added 16 lines
+      22    authError.classList.add('hidden');
+      23  }
+      24  
+      25 +function clearSession() {                                      
+      26 +  localStorage.removeItem('token');                            
+      27 +  document.getElementById('username-input').value = '';        
+      28 +  document.getElementById('password-input').value = '';        
+      29 +  document.getElementById('todo-input').value = '';            
+      30 +  document.getElementById('due-date-input').value = '';        
+      31 +  showAuth();                                                  
+      32 +}                                                              
+      33 +                                                               
+      34 +// Called by api.js when any request returns 401 — the token ex
+         +pired, was revoked,                                            
+      35 +// or never was valid. Drop the session and tell the user why. 
+      36 +export function handleSessionExpired() {                       
+      37 +  clearSession();                                              
+      38 +  showError('Your session expired. Please log in again.');     
+      39 +}                                                              
+      40 +                                                               
+      41  export function initAuth({ onAuthenticated }) {
+      42    const token = localStorage.getItem('token');
+      43    if (token) {
+
+● Update(~/ai-development-bootcamp/src/auth.js)
+  ⎿  Added 2 lines, removed 6 lines
+      104    });
+      105  
+      106    document.getElementById('logout-btn').addEventListener('clic
+           k', () => {
+      107 -    localStorage.removeItem('token');                         
+      108 -    document.getElementById('username-input').value = '';     
+      109 -    document.getElementById('password-input').value = '';     
+      110 -    document.getElementById('todo-input').value = '';         
+      111 -    document.getElementById('due-date-input').value = '';     
+      112 -    showAuth();                                               
+      107 +    clearError();                                             
+      108 +    clearSession();                                           
+      109    });
+      110  }
+
+● Now wire it in app.js:
+
+● Update(~/ai-development-bootcamp/src/app.js)
+  ⎿  Added 4 lines, removed 2 lines
+      1 -import { fetchTodos, createTodo, toggleTodo, deleteTodo, setToke
+        -n } from './api.js';                                            
+      2 -import { initAuth } from './auth.js';                           
+      1 +import { fetchTodos, createTodo, toggleTodo, deleteTodo, setToke
+        +n, setOnUnauthorized } from './api.js';                         
+      2 +import { initAuth, handleSessionExpired } from './auth.js';     
+      3  
+      4 +setOnUnauthorized(handleSessionExpired);                        
+      5 +                                                                
+      6  const input        = document.getElementById('todo-input');
+      7  const dueDateInput = document.getElementById('due-date-input');
+      8  const addBtn       = document.getElementById('add-btn');
+
+● Run the backend tests to confirm 1–3 didn't regress anything:
+
+● Bash(cd backend && ./mvnw -q test 2>&1 | tail -30)
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ [ERROR] Errors:                                                               
+  [ERROR]   TodoappApplicationTests.contextLoads » IllegalState Failed to load  
+  ApplicationContext for [WebMergedContextConfiguration@563bf9d2 testClass =    
+  com.example.todoapp.TodoappApplicationTests, locations = [], classes =        
+  [com.example.todoapp.TodoappApplication], contextInitializerClasses = [],     
+  activeProfiles = [], propertySourceDescriptors = [], propertySourceProperties 
+   = ["org.springframework.boot.test.context.SpringBootTestContextBootstrapper= 
+  true"], contextCustomizers =                                                  
+  [org.springframework.boot.test.context.PropertyMappingContextCustomizer@0,    
+  org.springframework.boot.test.context.filter.ExcludeFilterContextCustomizer@5 
+  a8ab2, org.springframework.boot.test.json.DuplicateJsonObjectContextCustomize 
+  rFactory$DuplicateJsonObjectContextCustomizer@2a367e93,                       
+  org.springframework.boot.test.autoconfigure.OnFailureConditionReportContextCu 
+  stomizerFactory$OnFailureConditionReportContextCustomizer@697a34af,           
+  org.springframework.boot.webmvc.test.autoconfigure.WebDriverContextCustomizer 
+  @78b612c6, org.springframework.boot.web.server.context.SpringBootTestRandomPo 
+  rtContextCustomizer@21ba2445, org.springframework.test.context.support.Dynami 
+  cPropertiesContextCustomizer@0, org.springframework.boot.testcontainers.servi 
+  ce.connection.ServiceConnectionContextCustomizer@0,                           
+  org.springframework.boot.test.context.SpringBootTestAnnotation@4058353],      
+  resourceBasePath = "src/main/webapp", contextLoader =                         
+  org.springframework.boot.test.context.SpringBootContextLoader, parent = null] 
+  [INFO]                                                                        
+  [ERROR] Tests run: 54, Failures: 0, Errors: 1, Skipped: 0                     
+
+  Read 3 files (ctrl+o to expand)
+
+● Bash(cd backend && git log --oneline -5
+      src/test/java/com/example/todoapp/TodoappApplicationTests.java 2>&1; git
+      stash list 2>&1; echo "---"; git status)
+  ⎿  4978eb1 backend initialization
+     ---
+     On branch auth
+     … +25 lines (ctrl+o to expand)
+
+● The fix: TodoappApplicationTests doesn't set a profile, so it loads
+  application.properties (real Postgres + the env-driven JWT secret) instead of
+  application-test.properties. The intended target is the test profile.
+
+● Update(src/test/java/com/example/todoapp/TodoappApplicationTests.java)
+  ⎿  Added 2 lines
+       2  
+       3  import org.junit.jupiter.api.Test;
+       4  import org.springframework.boot.test.context.SpringBootTest;
+       5 +import org.springframework.test.context.ActiveProfiles;        
+       6  
+       7  @SpringBootTest
+       8 +@ActiveProfiles("test")                                        
+       9  class TodoappApplicationTests {
+      10  
+      11    @Test
+
+❯ but what is the difference between the ActiveProfile and Profile annotation?  
+
+● They look similar but do opposite things — one declares, one activates:
+
+  @Profile("foo") — on a bean / config / component
+
+  Conditional registration. Says "only register me when profile foo is active."
+  It's a filter on the bean definition.
+
+  @Profile("test")
+  @RestController
+  public class TestResetController { ... }  // exists only when "test" profile 
+  is active
+
+  This is how TestResetController.java:10 already gates the /api/todos/reset
+  endpoint out of production.
+
+  @ActiveProfiles("foo") — on a test class
+
+  Activation switch. Says "for this test, turn on profile foo." It's the
+  test-side equivalent of running the app with --spring.profiles.active=foo.
+
+  @SpringBootTest
+  @ActiveProfiles("test")  // loads application-test.properties, activates 
+  @Profile("test") beans
+  class TodoappApplicationTests { ... }
+
+  The relationship
+
+  @ActiveProfiles flips the switch. @Profile reacts to it.
+
+  ┌─────────────┬──────────────────────────┬────────────────────────────────┐
+  │             │         @Profile         │        @ActiveProfiles         │
+  ├─────────────┼──────────────────────────┼────────────────────────────────┤
+  │ Package     │ o.s.context.annotation   │ o.s.test.context               │
+  ├─────────────┼──────────────────────────┼────────────────────────────────┤
+  │ Where it    │ Beans / @Configuration / │ Test classes only              │
+  │ goes        │  @Component classes      │                                │
+  ├─────────────┼──────────────────────────┼────────────────────────────────┤
+  │             │ Conditional — bean       │ Sets which profiles are active │
+  │ Effect      │ registered or not        │  for the test's                │
+  │             │                          │ ApplicationContext             │
+  ├─────────────┼──────────────────────────┼────────────────────────────────┤
+  │ Production  │ n/a (it's the annotation │ spring.profiles.active=... in  │
+  │ equivalent  │  itself)                 │ properties / env / CLI         │
+  └─────────────┴──────────────────────────┴────────────────────────────────┘
+
+  Concrete trace through your codebase right now
+
+  1. TodoappApplicationTests has @ActiveProfiles("test") → the test context
+  starts with profile test enabled.
+  2. Spring then loads application-test.properties (H2 + test JWT secret) on top
+   of application.properties.
+  3. TestResetController has @Profile("test") → because test is active, this
+  bean does get registered in the test context. In production (no profile, or
+  prod), the same annotation causes it to be skipped.
+
+  So @ActiveProfiles on the test caused @Profile("test") on the reset controller
+   to evaluate true. They work as a pair: one turns on the channel, the other
+  listens for it.
+
+  Common gotcha
+
+  Putting @Profile on a test class doesn't activate that profile — it just makes
+   the test class conditional on a profile being active elsewhere. For tests,
+  you almost always want @ActiveProfiles.
+
+  Want me to re-run the suite now to confirm contextLoads passes?
+
+✻ Sautéed for 1m 21s
+
+❯ Should we add a cucumber test to ensure expiring tokens cause the user to be  
+  led back to login page?                                                       
+  ⎿  ⧉ Selected 1 lines from src/main/java/com/example/todoapp/adapter/in/http/TestResetController.java in Visual Studio Code
+
+● Honest tradeoff first, then a recommendation.
+
+  The case for it
+
+  The expired-token → login flow has the most moving parts of any change we
+  made: JwtFilter 401 → fetch wrapper in api.js → setOnUnauthorized callback →
+  handleSessionExpired in auth.js → DOM swap. None of those wires are covered by
+   a unit test. A regression here is invisible until a user complains.
+
+  The case against
+
+  A literal "wait for the token to expire" test is flaky — it either sleeps in
+  real time or fights the JWT TTL config. Cucumber suites also add minutes to
+  CI.
+
+  What I'd actually test, and how
+
+  Skip "expired" — test "rejected". From the frontend's perspective, an expired
+  token and an invalid token are indistinguishable: both produce a 401 from
+  JwtFilter, and both should hit handleSessionExpired. So instead of waiting for
+   time to pass, plant a bogus token in localStorage before navigation and
+  assert the redirect.
+
+  Scenario: Invalid token returns the user to the login page
+    Given I have an invalid token stored in the browser
+    When I open the app
+    Then I see the login screen
+    And I see the error "Your session expired. Please log in again."
+
+  Step impl (Playwright):
+  Given('I have an invalid token stored in the browser', async function () {
+    await this.page.addInitScript(() => {
+      localStorage.setItem('token', 'not.a.real.jwt');
+    });
+  });
+
+  This is fast, deterministic, and proves exactly what matters: any rejected 
+  token routes the user back to login with a message. The fact that the
+  rejection reason was "expired" vs. "signature invalid" vs. "malformed" is a
+  backend concern that's already covered by
+  JwtServiceTest.verify_expiredToken_throws and verify_malformedToken_throws.
+
+  Optional second scenario (if you want belt + suspenders)
+
+  If you want to specifically prove the expiration path end-to-end, mint a
+  real-but-expired JWT with the test secret in a step definition:
+
+  const jwt = require('jsonwebtoken');
+  const TEST_SECRET =
+  Buffer.from('dGVzdC1zZWNyZXQtMzItYnl0ZXMtbG9uZy1mb3ItaG1hYy1zaGEyNTYh',
+  'base64');
+  const expired = jwt.sign({ sub: 'd0000000-0000-0000-0000-000000000000' },
+  TEST_SECRET, { algorithm: 'HS256', expiresIn: '-1s' });
+
+  But honestly the bogus-token version gives you 95% of the signal at 10% of the
+   setup cost.
+
+  My recommendation
+
+  Yes, one scenario, bogus-token version. Skip the expired-JWT-minting variant
+  unless someone later asks "but does it specifically handle expired?" — at
+  which point JwtServiceTest.verify_expiredToken_throws is the right place to
+  point them.
+
+  Want me to add it? If yes, I'll need to know whether the cucumber suite runs
+  against the docker-compose stack or a separate test profile — I'll check
+  features/step_definitions/api.hooks.js to wire it up correctly.
+
+✻ Brewed for 32s
+
+❯ yes, add the bogus-token scenario                                             
+
+  Listed 1 directory (ctrl+o to expand)
+
+● Bash(pwd && ls -la /home/jbroese/ai-development-bootcamp/features 2>&1 | head
+      -20)
+  ⎿  /home/jbroese/ai-development-bootcamp/backend
+     total 40
+     drwxr-xr-x  4 jbroese jbroese 4096 May 18 14:32 .
+     … +12 lines (ctrl+o to expand)
+
+  Read 3 files, listed 1 directory (ctrl+o to expand)
+
+● Adding the scenario and step. The Background already navigates to the login
+  page, so my step plants the bogus token and reloads.
+
+● Update(~/ai-development-bootcamp/features/auth.feature)
+  ⎿  Added 6 lines
+      35      Then the login form is visible
+      36      And the todo list is not visible
+      37  
+      38 +  Scenario: Invalid stored token returns the user to the login 
+         +page                                                           
+      39 +    When the stored token is invalid and the app reloads       
+      40 +    Then the login form is visible                             
+      41 +    And the todo list is not visible                           
+      42 +    And I see the auth error "Your session expired. Please log 
+         +in again."                                                     
+      43 +                                                               
+      44    Scenario: Username field does not accept more than 50 charact
+          ers
+      45      When I type 51 characters into the username field
+      46      Then the username field contains at most 50 characters
+● Update(~/ai-development-bootcamp/features/step_definitions/auth.steps.js)
+  ⎿  Added 8 lines
+      57    await this.page.click('#logout-btn');
+      58  });
+      59  
+      60 +When('the stored token is invalid and the app reloads', async f
+         +unction () {                                                   
+      61 +  // Plant a token the backend's JwtFilter will reject (malform
+         +ed signature).                                                 
+      62 +  // From the frontend's POV this is indistinguishable from an 
+         +expired token —                                                
+      63 +  // both produce a 401, both must route the user back to login
+         +.                                                              
+      64 +  await this.page.evaluate(() => localStorage.setItem('token', 
+         +'not.a.real.jwt'));                                            
+      65 +  await this.page.goto(this.baseUrl);                          
+      66 +});                                                            
+      67 +                                                               
+      68  When('I type {int} characters into the username field', async f
+          unction (count) {
+      69    await this.page.fill('#username-input', 'a'.repeat(count));
+      70  });
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● Bash(cd /home/jbroese/ai-development-bootcamp && npm run test:bdd --
+      features/auth.feature 2>&1 | tail -40)
+  ⎿  Interrupted · What should Claude do instead?

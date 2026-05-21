@@ -8,14 +8,29 @@
 </head>
 <body>
   <div class="container">
-    <h1>TODO App</h1>
-    <div class="input-row">
-      <input id="todo-input" type="text" placeholder="What needs to be done?">
-      <input id="due-date-input" type="date">
-      <button id="add-btn">Add</button>
-    </div>
-    <ul id="todo-list"></ul>
-    <p id="empty-state">No tasks yet. Add one above!</p>
+    <section id="auth-view">
+      <h1>TODO App</h1>
+      <input id="username-input" type="text" placeholder="Username" maxlength="50" aria-label="Username" autocomplete="username">
+      <input id="password-input" type="password" placeholder="Password" maxlength="100" aria-label="Password" autocomplete="current-password">
+      <div class="auth-buttons">
+        <button id="login-btn">Log in</button>
+        <button id="register-btn">Register</button>
+      </div>
+      <p id="auth-error" class="hidden" role="alert" aria-live="polite"></p>
+    </section>
+    <section id="todo-view" class="hidden">
+      <div class="todo-header">
+        <h1>TODO App</h1>
+        <button id="logout-btn">Log out</button>
+      </div>
+      <div class="input-row">
+        <input id="todo-input" type="text" placeholder="What needs to be done?">
+        <input id="due-date-input" type="date">
+        <button id="add-btn">Add</button>
+      </div>
+      <ul id="todo-list"></ul>
+      <p id="empty-state">No tasks yet. Add one above!</p>
+    </section>
   </div>
   <script type="module" src="src/app.js"></script>
 </body>

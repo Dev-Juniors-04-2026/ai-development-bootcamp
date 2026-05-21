@@ -76,13 +76,16 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Frontend: Plain HTML/CSS/JS only — no frameworks, no build tools, no external dependencies
 - Backend: Spring Boot 4.x, Java 21, Maven, PostgreSQL, Spring Data JPA, Flyway
 
-**Hard scope boundaries (non-goals):** No user auth, no cloud sync, no native apps, no priorities/tags.
+**Hard scope boundaries (non-goals):** No cloud sync, no native apps, no priorities/tags.
 
-**Data model (persisted via backend API / PostgreSQL):**
-- `id` — UUID (unique identifier)
+**Auth:** JWT Bearer tokens; stored in `localStorage`. Passwords hashed server-side. Users see only their own todos.
+
+**Todo data model (persisted via backend API):**
+- `id` — UUID
 - `title` — string (task text)
 - `completed` — boolean
 - `dueDate` — string | null (ISO 8601 date, optional)
+- `userId` — UUID (owning user)
 
 **Backend architecture:** Hexagonal (Ports & Adapters) — domain is isolated from infrastructure. See `ARCHITECTURE.md` for layer breakdown and REST API status.
 

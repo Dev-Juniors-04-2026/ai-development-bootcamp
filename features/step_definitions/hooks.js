@@ -60,11 +60,33 @@ AfterAll(async function () {
   await new Promise((res) => server?.close(res));
 });
 
-Before(async function () {
+const TEST_USER = { username: 'bdd-user', password: 'bdd-password' };
+
+async function registerAndLogin({ username, password }) {
+  await fetch('http://localhost:8080/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  const res = await fetch('http://localhost:8080/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  const { token } = await res.json();
+  return token;
+}
+
+Before({ tags: 'not @api' }, async function () {
   await fetch('http://localhost:8080/api/todos/reset', { method: 'DELETE' }).catch(() => {});
   this.baseUrl = baseUrl;
   this.browser = await chromium.launch();
   this.page = await this.browser.newPage();
+});
+
+Before({ tags: 'not @api and not @auth' }, async function () {
+  const token = await registerAndLogin(TEST_USER);
+  await this.page.addInitScript((t) => localStorage.setItem('token', t), token);
 });
 
 After(async function () {

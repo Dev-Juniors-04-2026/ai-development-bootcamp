@@ -22,7 +22,7 @@
 
     "network": {
       "allowManagedDomainsOnly": true,
-      "allowedDomains": ["github.com", "localhost"]
+      "allowedDomains": ["github.com", "localhost", "repo.maven.apache.org"]
     }
   },
   "statusLine": {

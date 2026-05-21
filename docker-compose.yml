@@ -25,6 +25,10 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/todoapp
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgres
+      # Override via host env: `JWT_SECRET=$(openssl rand -base64 32) docker compose up`.
+      # If unset, app falls back to the insecure dev default in application.properties.
+      JWT_SECRET: ${JWT_SECRET:-SU5TRUNVUkUtREVWLU9OTFktZGVmYXVsdC1zZWNyZXQtZG8tbm90LXVzZS1pbi1wcm9k}
+      JWT_TTL_MINUTES: ${JWT_TTL_MINUTES:-60}
     depends_on:
       db:
         condition: service_healthy

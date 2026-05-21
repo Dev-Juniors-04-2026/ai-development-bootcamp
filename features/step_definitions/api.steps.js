@@ -3,10 +3,14 @@ import assert from 'assert';
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8080';
 
+function authHeaders(token, extra = {}) {
+  return { ...extra, Authorization: `Bearer ${token}` };
+}
+
 When('I create a todo with title {string}', async function (title) {
   this.response = await fetch(`${API_BASE_URL}/api/todos`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(this.token, { 'Content-Type': 'application/json' }),
     body: JSON.stringify({ title }),
   });
   this.responseBody = await this.response.json();
@@ -27,13 +31,15 @@ Then('the response todo is not completed', function () {
 Given('a todo with title {string} exists', async function (title) {
   await fetch(`${API_BASE_URL}/api/todos`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(this.token, { 'Content-Type': 'application/json' }),
     body: JSON.stringify({ title }),
   });
 });
 
 When('I get all todos', async function () {
-  this.response = await fetch(`${API_BASE_URL}/api/todos`);
+  this.response = await fetch(`${API_BASE_URL}/api/todos`, {
+    headers: authHeaders(this.token),
+  });
   this.responseBody = await this.response.json();
 });
 
@@ -51,6 +57,7 @@ When('I toggle the todo', async function () {
   this.todoId = id;
   this.response = await fetch(`${API_BASE_URL}/api/todos/${id}`, {
     method: 'PATCH',
+    headers: authHeaders(this.token),
   });
   this.responseBody = await this.response.json();
 });
@@ -58,6 +65,7 @@ When('I toggle the todo', async function () {
 When('I toggle a todo with id {string}', async function (id) {
   this.response = await fetch(`${API_BASE_URL}/api/todos/${id}`, {
     method: 'PATCH',
+    headers: authHeaders(this.token),
   });
   this.responseBody = this.response.status !== 404 ? await this.response.json() : null;
 });
@@ -67,6 +75,7 @@ When('I delete the todo', async function () {
   this.todoId = id;
   this.response = await fetch(`${API_BASE_URL}/api/todos/${id}`, {
     method: 'DELETE',
+    headers: authHeaders(this.token),
   });
   this.responseBody = this.response.status !== 204 ? await this.response.json() : null;
 });
@@ -74,6 +83,7 @@ When('I delete the todo', async function () {
 When('I delete a todo with id {string}', async function (id) {
   this.response = await fetch(`${API_BASE_URL}/api/todos/${id}`, {
     method: 'DELETE',
+    headers: authHeaders(this.token),
   });
   this.responseBody = this.response.status !== 204 ? await this.response.json() : null;
 });
@@ -97,7 +107,7 @@ Then('the todo with title {string} in the list is not completed', function (titl
 When('I create a todo with title {string} and due date {string}', async function (title, dueDate) {
   this.response = await fetch(`${API_BASE_URL}/api/todos`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(this.token, { 'Content-Type': 'application/json' }),
     body: JSON.stringify({ title, dueDate }),
   });
   this.responseBody = await this.response.json();

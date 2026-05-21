@@ -2,13 +2,20 @@ package com.example.todoapp.adapter.in.http;
 
 import com.example.todoapp.domain.model.Todo;
 import com.example.todoapp.domain.port.in.TodoUseCase;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -23,7 +30,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(TodoController.class)
+@AutoConfigureMockMvc(addFilters = false)
 class TodoControllerTest {
+
+    private static final UUID USER_ID = UUID.randomUUID();
 
     @Autowired
     MockMvc mockMvc;
@@ -31,11 +41,23 @@ class TodoControllerTest {
     @MockitoBean
     TodoUseCase todoUseCase;
 
+    @BeforeEach
+    void setUp() {
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(new UsernamePasswordAuthenticationToken(USER_ID, null, Collections.emptyList()));
+        SecurityContextHolder.setContext(context);
+    }
+
+    @AfterEach
+    void tearDown() {
+        SecurityContextHolder.clearContext();
+    }
+
     @Test
     void getAllTodos_returns200WithTodos() throws Exception {
-        when(todoUseCase.getAll()).thenReturn(List.of(
-                new Todo(null, "Buy milk", false),
-                new Todo(null, "Walk the dog", false)
+        when(todoUseCase.getAll(USER_ID)).thenReturn(List.of(
+                new Todo(null, "Buy milk", false, null, USER_ID),
+                new Todo(null, "Walk the dog", false, null, USER_ID)
         ));
 
         mockMvc.perform(get("/api/todos"))
@@ -48,8 +70,8 @@ class TodoControllerTest {
 
     @Test
     void postTodo_returns201WithTitleAndCompleted() throws Exception {
-        when(todoUseCase.create("Buy milk", null))
-                .thenReturn(new Todo(null, "Buy milk", false, null));
+        when(todoUseCase.create(USER_ID, "Buy milk", null))
+                .thenReturn(new Todo(null, "Buy milk", false, null, USER_ID));
 
         mockMvc.perform(post("/api/todos")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -66,7 +88,8 @@ class TodoControllerTest {
     void patchToggle_returns200WithUpdatedTodo() throws Exception {
         UUID id = UUID.randomUUID();
         boolean anyCompletedState = true;
-        when(todoUseCase.toggle(id)).thenReturn(new Todo(id, "Buy milk", anyCompletedState));
+        when(todoUseCase.toggle(USER_ID, id))
+                .thenReturn(new Todo(id, "Buy milk", anyCompletedState, null, USER_ID));
 
         mockMvc.perform(patch("/api/todos/{id}", id))
                 .andExpect(status().isOk())
@@ -79,18 +102,18 @@ class TodoControllerTest {
     @Test
     void deleteTodo_returns204() throws Exception {
         UUID id = UUID.randomUUID();
-        doNothing().when(todoUseCase).delete(id);
+        doNothing().when(todoUseCase).delete(USER_ID, id);
 
         mockMvc.perform(delete("/api/todos/{id}", id))
                 .andExpect(status().isNoContent());
 
-        verify(todoUseCase).delete(id);
+        verify(todoUseCase).delete(USER_ID, id);
     }
 
     @Test
     void postTodo_withDueDate_returns201WithDueDate() throws Exception {
-        when(todoUseCase.create("Submit report", "2026-05-10"))
-                .thenReturn(new Todo(null, "Submit report", false, "2026-05-10"));
+        when(todoUseCase.create(USER_ID, "Submit report", "2026-05-10"))
+                .thenReturn(new Todo(null, "Submit report", false, "2026-05-10", USER_ID));
 
         mockMvc.perform(post("/api/todos")
                         .contentType(MediaType.APPLICATION_JSON)

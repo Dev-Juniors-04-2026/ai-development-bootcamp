@@ -22,8 +22,11 @@ Then('{int} TODOs appear in the list', async function (expectedCount) {
 });
 
 Then('the text field is empty', async function () {
-  const value = await this.page.locator('#todo-input').inputValue();
-  assert.strictEqual(value, '', `Expected empty input but got "${value}"`);
+  await this.page.waitForFunction(
+    () => document.querySelector('#todo-input').value === '',
+    null,
+    { timeout: 2000 }
+  );
 });
 
 Then('the empty state is visible', async function () {
@@ -51,22 +54,21 @@ Then('{string} appears as the last TODO in the list', async function (title) {
 });
 
 Then('the TODO {string} shows the due date {string}', async function (title, expectedDate) {
-  const dueDateText = await this.page
+  const row = this.page
     .locator('#todo-list li')
     .filter({ has: this.page.locator('span', { hasText: title }) })
-    .first()
-    .locator('.due-date')
-    .textContent();
-  assert.strictEqual(dueDateText, expectedDate);
+    .first();
+  await row.waitFor({ state: 'visible', timeout: 2000 });
+  await row.locator('.due-date', { hasText: expectedDate }).waitFor({ state: 'visible', timeout: 2000 });
 });
 
 Then('the TODO {string} shows no due date', async function (title) {
-  const count = await this.page
+  const row = this.page
     .locator('#todo-list li')
     .filter({ has: this.page.locator('span', { hasText: title }) })
-    .first()
-    .locator('.due-date')
-    .count();
+    .first();
+  await row.waitFor({ state: 'visible', timeout: 2000 });
+  const count = await row.locator('.due-date').count();
   assert.strictEqual(count, 0);
 });
 

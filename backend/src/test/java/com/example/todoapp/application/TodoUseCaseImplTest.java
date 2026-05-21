@@ -23,6 +23,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class TodoUseCaseImplTest {
 
+    private static final UUID USER_ID = UUID.randomUUID();
+
     @Mock
     TodoRepository repository;
 
@@ -30,15 +32,15 @@ class TodoUseCaseImplTest {
     TodoUseCaseImpl todoUseCase;
 
     @Test
-    void getAll_returnsAllTodos() {
+    void getAll_returnsAllTodosForUser() {
         UUID id1 = UUID.randomUUID();
         UUID id2 = UUID.randomUUID();
-        when(repository.findAll()).thenReturn(List.of(
-                new Todo(id1, "Buy milk", false),
-                new Todo(id2, "Walk the dog", true)
+        when(repository.findAllByUserId(USER_ID)).thenReturn(List.of(
+                new Todo(id1, "Buy milk", false, null, USER_ID),
+                new Todo(id2, "Walk the dog", true, null, USER_ID)
         ));
 
-        List<Todo> result = todoUseCase.getAll();
+        List<Todo> result = todoUseCase.getAll(USER_ID);
 
         assertNotNull(result);
         assertEquals(2, result.size());
@@ -51,10 +53,10 @@ class TodoUseCaseImplTest {
     }
 
     @Test
-    void create_savesAndReturnsTodo() {
+    void create_savesAndReturnsTodoScopedToUser() {
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        Todo result = todoUseCase.create("Buy milk", null);
+        Todo result = todoUseCase.create(USER_ID, "Buy milk", null);
 
         ArgumentCaptor<Todo> captor = ArgumentCaptor.forClass(Todo.class);
         verify(repository).save(captor.capture());
@@ -63,20 +65,23 @@ class TodoUseCaseImplTest {
         assertEquals("Buy milk", captor.getValue().getTitle());
         assertFalse(captor.getValue().isCompleted());
         assertNotNull(captor.getValue().getId());
+        assertEquals(USER_ID, captor.getValue().getUserId());
 
         assertNotNull(result);
         assertEquals("Buy milk", result.getTitle());
         assertFalse(result.isCompleted());
         assertNotNull(result.getId());
+        assertEquals(USER_ID, result.getUserId());
     }
 
     @Test
     void toggle_whenTodoIsNotCompleted_returnsCompletedTodo() {
         UUID id = UUID.randomUUID();
-        when(repository.findById(id)).thenReturn(Optional.of(new Todo(id, "Buy milk", false)));
+        when(repository.findByIdAndUserId(id, USER_ID))
+                .thenReturn(Optional.of(new Todo(id, "Buy milk", false, null, USER_ID)));
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        Todo result = todoUseCase.toggle(id);
+        Todo result = todoUseCase.toggle(USER_ID, id);
 
         assertNotNull(result);
         assertTrue(result.isCompleted());
@@ -87,10 +92,11 @@ class TodoUseCaseImplTest {
     @Test
     void toggle_whenTodoIsCompleted_returnsNotCompletedTodo() {
         UUID id = UUID.randomUUID();
-        when(repository.findById(id)).thenReturn(Optional.of(new Todo(id, "Buy milk", true)));
+        when(repository.findByIdAndUserId(id, USER_ID))
+                .thenReturn(Optional.of(new Todo(id, "Buy milk", true, null, USER_ID)));
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        Todo result = todoUseCase.toggle(id);
+        Todo result = todoUseCase.toggle(USER_ID, id);
 
         assertNotNull(result);
         assertFalse(result.isCompleted());
@@ -101,28 +107,29 @@ class TodoUseCaseImplTest {
     @Test
     void toggle_whenTodoDoesNotExist_throwsNoSuchElementException() {
         UUID id = UUID.randomUUID();
-        when(repository.findById(id)).thenReturn(Optional.empty());
+        when(repository.findByIdAndUserId(id, USER_ID)).thenReturn(Optional.empty());
 
-        assertThrows(NoSuchElementException.class, () -> todoUseCase.toggle(id));
+        assertThrows(NoSuchElementException.class, () -> todoUseCase.toggle(USER_ID, id));
         verify(repository, never()).save(any());
     }
 
     @Test
-    void delete_callsDeleteById() {
+    void delete_callsDeleteByIdAndUserId() {
         UUID id = UUID.randomUUID();
-        when(repository.findById(id)).thenReturn(Optional.of(new Todo(id, "Buy milk", false)));
+        when(repository.findByIdAndUserId(id, USER_ID))
+                .thenReturn(Optional.of(new Todo(id, "Buy milk", false, null, USER_ID)));
 
-        todoUseCase.delete(id);
+        todoUseCase.delete(USER_ID, id);
 
-        verify(repository).deleteById(id);
+        verify(repository).deleteByIdAndUserId(id, USER_ID);
     }
 
     @Test
     void delete_whenTodoDoesNotExist_throwsNoSuchElementException() {
         UUID id = UUID.randomUUID();
-        when(repository.findById(id)).thenReturn(Optional.empty());
+        when(repository.findByIdAndUserId(id, USER_ID)).thenReturn(Optional.empty());
 
-        assertThrows(NoSuchElementException.class, () -> todoUseCase.delete(id));
-        verify(repository, never()).deleteById(any());
+        assertThrows(NoSuchElementException.class, () -> todoUseCase.delete(USER_ID, id));
+        verify(repository, never()).deleteByIdAndUserId(any(), any());
     }
 }

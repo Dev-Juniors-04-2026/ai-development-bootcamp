@@ -60,5 +60,9 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: PLAYWRIGHT_BROWSERS_PATH=.playwright-mcp npx playwright install --with-deps chromium
 
+      - name: Pre-fetch backend Maven dependencies
+        run: ./mvnw -B dependency:go-offline
+        working-directory: backend
+
       - name: Run BDD tests
         run: npm run test:bdd

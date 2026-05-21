@@ -38,5 +38,5 @@ When('I toggle the todo {string}', async function (title) {
 
 When('I reload the page', async function () {
   await this.page.reload();
-  await this.page.waitForSelector('#todo-input');
+  await this.page.locator('#todo-input').waitFor({ state: 'visible' });
 });

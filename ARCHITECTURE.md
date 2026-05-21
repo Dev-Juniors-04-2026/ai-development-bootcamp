@@ -6,7 +6,9 @@
 
 ## Overview
 
-Single-page, in-browser TODO application with a Spring Boot REST backend and PostgreSQL database. The frontend is plain HTML/CSS/JS (no build tools, no frameworks). State is persisted via the backend API and PostgreSQL.
+Single-page, in-browser TODO application with a Spring Boot REST backend and PostgreSQL database. The frontend is plain HTML/CSS/JS (no build tools, no frameworks). State is persisted via the backend API; `localStorage` is no longer the primary storage.
+
+> **Integration status:** The backend supports listing, creating, toggling, and deleting todos. The frontend calls the backend API via `api.js`. Auth (register/login/JWT) is planned but not yet implemented in either layer.
 
 ---
 
@@ -34,27 +36,44 @@ PostgreSQL Database
 ├── css/
 │   └── style.css       # All visual styling
 ├── src/
-│   ├── app.js          # Event wiring, rendering, and DOM references
-│   └── api.js          # REST API client (fetch wrappers for all backend calls)
+│   ├── app.js          # Event wiring, DOM rendering, API calls for todos
+│   ├── api.js          # fetch wrappers for all backend endpoints
+│   └── auth.js         # Login/register/logout UI and token storage  [planned]
 └── backend/            # Spring Boot application (Java 21, Maven)
     └── src/main/java/com/example/todoapp/
         ├── domain/
-        │   ├── model/Todo.java
+        │   ├── model/
+        │   │   ├── Todo.java
+        │   │   └── User.java                    [planned]
         │   └── port/
-        │       ├── in/TodoUseCase.java
-        │       └── out/TodoRepository.java
+        │       ├── in/
+        │       │   ├── TodoUseCase.java
+        │       │   └── UserUseCase.java          [planned]
+        │       └── out/
+        │           ├── TodoRepository.java
+        │           └── UserRepository.java       [planned]
         ├── application/
-        │   └── TodoUseCaseImpl.java
+        │   ├── TodoUseCaseImpl.java
+        │   └── UserUseCaseImpl.java              [planned]
         └── adapter/
             ├── in/http/
             │   ├── TodoController.java
+            │   ├── AuthController.java           [planned]
             │   ├── CreateTodoRequest.java
+            │   ├── RegisterRequest.java          [planned]
+            │   ├── LoginRequest.java             [planned]
             │   ├── TodoResponse.java
+            │   ├── TokenResponse.java            [planned]
+            │   ├── JwtFilter.java                [planned]
+            │   ├── GlobalExceptionHandler.java
             │   └── TestResetController.java
             └── out/persistence/
                 ├── TodoJpaEntity.java
                 ├── TodoJpaRepository.java
-                └── TodoPersistenceAdapter.java
+                ├── TodoPersistenceAdapter.java
+                ├── UserJpaEntity.java            [planned]
+                ├── UserJpaRepository.java        [planned]
+                └── UserPersistenceAdapter.java   [planned]
 ```
 
 ---
@@ -152,15 +171,19 @@ The backend follows the **Ports & Adapters (Hexagonal) pattern**: business logic
 
 | Class | Description |
 |---|---|
-| `Todo` | Domain model: `id` (UUID), `title` (String), `completed` (boolean), `dueDate` (String, nullable) |
+| `Todo` | Domain model: `id` (UUID), `title` (String), `completed` (boolean), `dueDate` (String\|null), `userId` (UUID) |
 | `TodoUseCase` | Inbound port — `getAll()`, `create(title, dueDate)`, `toggle(id)`, `delete(id)` |
-| `TodoRepository` | Outbound port — `save()`, `findAll()`, `findById(id)`, `deleteById(id)`, `deleteAll()` |
+| `TodoRepository` | Outbound port — `save()`, `findAll()`, `findById()`, `delete()`, `deleteAll()` |
+| `User` | Domain model: `id` (UUID), `username` (String), `passwordHash` (String) — **[planned]** |
+| `UserUseCase` | Inbound port — `register(username, password)`, `login(username, password): token` — **[planned]** |
+| `UserRepository` | Outbound port — `save()`, `findByUsername()` — **[planned]** |
 
 ### Application (`application/`)
 
 | Class | Description |
 |---|---|
 | `TodoUseCaseImpl` | Implements `TodoUseCase`; orchestrates domain logic via `TodoRepository` |
+| `UserUseCaseImpl` | Implements `UserUseCase`; hashes passwords with **Argon2**, issues JWT tokens — **[planned]** |
 
 ### Adapters
 
@@ -169,8 +192,14 @@ The backend follows the **Ports & Adapters (Hexagonal) pattern**: business logic
 | Class | Description |
 |---|---|
 | `TodoController` | `GET /api/todos`, `POST /api/todos`, `PATCH /api/todos/{id}`, `DELETE /api/todos/{id}` |
-| `CreateTodoRequest` | Request DTO: `{ title: String, dueDate: String }` |
-| `TodoResponse` | Response DTO: `{ id: UUID, title: String, completed: boolean, dueDate: String }` |
+| `AuthController` | `POST /api/auth/register`, `POST /api/auth/login` — **[planned]** |
+| `CreateTodoRequest` | Request DTO: `{ title: String, dueDate: String\|null }` |
+| `RegisterRequest` | Request DTO: `{ username: String, password: String }` — **[planned]** |
+| `LoginRequest` | Request DTO: `{ username: String, password: String }` — **[planned]** |
+| `TodoResponse` | Response DTO: `{ id: UUID, title: String, completed: boolean, dueDate: String\|null }` |
+| `TokenResponse` | Response DTO: `{ token: String }` — **[planned]** |
+| `JwtFilter` | Validates `Authorization: Bearer <token>` on every request — **[planned]** |
+| `GlobalExceptionHandler` | Maps domain exceptions to HTTP error responses |
 | `TestResetController` | `DELETE /api/todos/reset` — test profile only, clears all data |
 
 **Outbound (`adapter/out/persistence/`)**
@@ -180,15 +209,20 @@ The backend follows the **Ports & Adapters (Hexagonal) pattern**: business logic
 | `TodoPersistenceAdapter` | Implements `TodoRepository` using Spring Data JPA |
 | `TodoJpaEntity` | JPA entity mapped to `todo` table |
 | `TodoJpaRepository` | Spring Data `JpaRepository` |
+| `UserPersistenceAdapter` | Implements `UserRepository` using Spring Data JPA — **[planned]** |
+| `UserJpaEntity` | JPA entity mapped to `user` table — **[planned]** |
+| `UserJpaRepository` | Spring Data `JpaRepository` — **[planned]** |
 
 ### REST API
 
 | Method | Path | Status | Description |
 |---|---|---|---|
-| `GET` | `/api/todos` | ✅ implemented | Returns all todos |
+| `POST` | `/api/auth/register` | ❌ planned | Register a new user; body: `{ "username": "...", "password": "..." }` |
+| `POST` | `/api/auth/login` | ❌ planned | Login; returns `{ "token": "..." }` |
+| `GET` | `/api/todos` | ✅ implemented | Returns all todos for the authenticated user |
 | `POST` | `/api/todos` | ✅ implemented | Creates a new todo; body: `{ "title": "...", "dueDate": "..." }` |
-| `PATCH` | `/api/todos/{id}` | ✅ implemented | Toggles completed state |
-| `DELETE` | `/api/todos/{id}` | ✅ implemented | Deletes a single todo |
+| `PATCH` | `/api/todos/{id}` | ✅ implemented | Toggle completed state |
+| `DELETE` | `/api/todos/{id}` | ✅ implemented | Delete a single todo |
 | `DELETE` | `/api/todos/reset` | ✅ test only | Deletes all todos (test profile only) |
 
 ### Tech Stack
@@ -200,7 +234,8 @@ The backend follows the **Ports & Adapters (Hexagonal) pattern**: business logic
 | Persistence | Spring Data JPA + PostgreSQL |
 | DB migrations | Flyway |
 | Build | Maven |
-| Test DB | H2 in-memory (unit tests and BDD tests) |
+| Auth | JWT (Bearer tokens); password hashing via Argon2 |
+| Test DB | H2 (in-memory), Testcontainers (integration) |
 
 ---
 
@@ -210,18 +245,23 @@ The backend follows the **Ports & Adapters (Hexagonal) pattern**: business logic
 Page load
     │
     ▼
-GET /api/todos
-    │
-    ▼
-render() — initial UI
+auth.js — check localStorage for JWT token    [planned]
+    ├── no token  → show login/register UI
+    └── has token → show todo UI
+                        │
+                        ▼
+                  GET /api/todos  (Authorization: Bearer <token>)
+                        │
+                        ▼
+                  render() — initial UI
 
-User action
+User action (todo UI)
     │
     ▼
 Event handler (app.js)
     │
-    ├── add:    POST /api/todos
-    ├── toggle: PATCH /api/todos/{id}
+    ├── add:    POST   /api/todos
+    ├── toggle: PATCH  /api/todos/{id}
     └── delete: DELETE /api/todos/{id}
     │
     ▼
@@ -236,5 +276,5 @@ Updated UI
 ## Constraints (from PRD)
 
 - Frontend: Plain HTML/CSS/JS only — no npm, no bundler, no framework
-- Backend: Spring Boot, Java 21, Maven, PostgreSQL
-- No auth, no routing, no native apps
+- Backend: Spring Boot 4.x, Java 21, Maven, PostgreSQL
+- No cloud sync, no native apps, no priorities/tags
