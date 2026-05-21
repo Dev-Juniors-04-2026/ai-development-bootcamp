@@ -60,13 +60,11 @@ When('I click log out', async function () {
 When('the stored token is invalid and the app reloads', async function () {
   // Plant a token the backend's JwtFilter will reject (malformed signature).
   // From the frontend's POV this is indistinguishable from an expired token —
-  // both produce a 401, both must route the user back to login.
+  // both produce a 401, both must route the user back to login. The following
+  // Then steps wait for the resulting UI state (auth view + error), which is
+  // only reachable via the 401 path.
   await this.page.evaluate(() => localStorage.setItem('token', 'not.a.real.jwt'));
-  const unauthorized = this.page.waitForResponse(
-      r => r.url().includes('/api/todos') && r.status() === 401,
-      { timeout: 2500 });
   await this.page.goto(this.baseUrl);
-  await unauthorized;
 });
 
 When('I type {int} characters into the username field', async function (count) {

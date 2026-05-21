@@ -1,5 +1,6 @@
 package com.example.todoapp.adapter.in.http;
 
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -47,6 +48,12 @@ public class SecurityConfig {
                         .requestMatchers("/api/todos/reset").permitAll()
                         .requestMatchers("/", "/index.html", "/css/**", "/src/**").permitAll()
                         .anyRequest().authenticated())
+
+                // Without this, the default entry point is Http403ForbiddenEntryPoint, which
+                // turns missing/invalid authentication into 403. We want 401 so the frontend
+                // can detect expired tokens and bounce the user back to login.
+                .exceptionHandling(eh -> eh.authenticationEntryPoint(
+                        (req, res, ex) -> res.sendError(HttpServletResponse.SC_UNAUTHORIZED)))
 
                 // Insert JwtFilter before the slot where form login would normally run.
                 // The filter reads "Authorization: Bearer ...", asks JwtService to validate
