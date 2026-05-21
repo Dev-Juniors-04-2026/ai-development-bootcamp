@@ -1,45 +1,6 @@
- ▐▛███▜▌   Claude Code v2.1.143
-▝▜█████▛▘  Opus 4.7 · Claude Pro
-  ▘▘ ▝▝    ~/ai-development-bootcamp/backend
-
-❯ You are an expert white hat hacker. How would you check whether our app is    
-  vulnerable to any of the OWASP Top 10 (2025)?                                 
-  ⎿  ⧉ Selected 1 lines from backend/src/main/java/com/example/todoapp/domain/InvalidCredentialsException.java in Visual Studio Code
-
-● I'll explore the codebase to understand the app's architecture, then plan a
-  targeted OWASP Top 10 (2025) security assessment.
-
-  Listed 1 directory (ctrl+o to expand)
-
-● Explore(Map auth, API, and security surface)
-  ⎿  Done (32 tool uses · 44.1k tokens · 50s)
-  (ctrl+o to expand)
-
-● Updated plan
-  ⎿  /plan to preview
-
-● User approved Claude's plan
-  ⎿  Plan saved to: ~/.claude/plans/you-are-an-expert-zany-oasis.md · /plan to 
-     edit
-     Plan: OWASP Top 10 (2025) Security Assessment
-
-     Context
-
-     You asked how I'd check this TODO app (Spring Boot 4 / Java 21 backend +
-     plain HTML/JS frontend, JWT auth) against the OWASP Top 10 — 2025 edition.
-     Note: as of today (2026-05-18) the 2025 list is finalized; the categories
-     below reflect that release. This is a read-only audit — I'll inspect the
-     code along each category, then run targeted runtime probes. No code changes
-      are made in this plan; remediation would be a separate task.
-
-     Exploration already surfaced several findings (overpermissive CORS, no JWT
-     expiration, in-memory JWT secret, test endpoint exposed, localStorage
-     tokens). The plan below makes the audit systematic so nothing is missed.
-
-     Method per category
-
-     For each OWASP category I'll do (a) static review of the relevant files,
-     and (b) where useful, (c) a dynamic probe via curl against a locally-run
+Removed generated AI tooling transcript from version control.
+This file previously contained a local security-audit session log and should not
+be committed as repository content.
      instance.
 
      A01:2025 — Broken Access Control
