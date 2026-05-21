@@ -4,7 +4,7 @@ import com.example.todoapp.domain.model.Todo;
 import com.example.todoapp.domain.port.in.TodoUseCase;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -29,27 +29,33 @@ public class TodoController {
     }
 
     @GetMapping
-    public List<TodoResponse> getAll(@AuthenticationPrincipal UUID userId) {
-        return todoUseCase.getAll(userId).stream()
+    public List<TodoResponse> getAll() {
+        return todoUseCase.getAll(currentUserId()).stream()
                 .map(this::toResponse)
                 .toList();
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public TodoResponse create(@AuthenticationPrincipal UUID userId, @Valid @RequestBody CreateTodoRequest request) {
-        return toResponse(todoUseCase.create(userId, request.title(), request.dueDate()));
+    public TodoResponse create(@Valid @RequestBody CreateTodoRequest request) {
+        return toResponse(todoUseCase.create(currentUserId(), request.title(), request.dueDate()));
     }
 
     @PatchMapping("/{id}")
-    public TodoResponse toggle(@AuthenticationPrincipal UUID userId, @PathVariable UUID id) {
-        return toResponse(todoUseCase.toggle(userId, id));
+    public TodoResponse toggle(@PathVariable UUID id) {
+        return toResponse(todoUseCase.toggle(currentUserId(), id));
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@AuthenticationPrincipal UUID userId, @PathVariable UUID id) {
-        todoUseCase.delete(userId, id);
+    public void delete(@PathVariable UUID id) {
+        todoUseCase.delete(currentUserId(), id);
+    }
+
+    // SecurityConfig denies any /api/** request without auth, so this is reached
+    // only with a populated principal; the cast is safe in that contract.
+    private UUID currentUserId() {
+        return (UUID) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
     }
 
     private TodoResponse toResponse(Todo todo) {

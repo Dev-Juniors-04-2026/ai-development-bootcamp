@@ -1,5 +1,6 @@
 package com.example.todoapp.adapter.in.http;
 
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -74,7 +75,7 @@ class JwtFilterTest {
 
     @Test
     void invalidBearerToken_returns401AndDoesNotContinueChain() throws Exception {
-        when(jwtService.verify("bad-token")).thenThrow(new RuntimeException("invalid signature"));
+        when(jwtService.verify("bad-token")).thenThrow(new JwtException("invalid signature"));
 
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader("Authorization", "Bearer bad-token");
