@@ -4,4 +4,6 @@ CREATE TABLE users (
     password_hash VARCHAR(255) NOT NULL
 );
 
-ALTER TABLE todo ADD COLUMN user_id UUID;
+DELETE FROM todo;
+ALTER TABLE todo ADD COLUMN user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE;
+CREATE INDEX idx_todo_user_id ON todo(user_id);

@@ -78,8 +78,12 @@ list.addEventListener('click', async e => {
 });
 
 initAuth({
-  onAuthenticated(token) {
+  async onAuthenticated(token) {
     setToken(token);
-    refresh();
+    try {
+      await refresh();
+    } catch {
+      // 401s flow through setOnUnauthorized → handleSessionExpired; swallow the rest so the promise doesn't reject unhandled.
+    }
   },
 });

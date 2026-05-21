@@ -10,13 +10,13 @@
   <div class="container">
     <section id="auth-view">
       <h1>TODO App</h1>
-      <input id="username-input" type="text" placeholder="Username" maxlength="50">
-      <input id="password-input" type="password" placeholder="Password" maxlength="100">
+      <input id="username-input" type="text" placeholder="Username" maxlength="50" aria-label="Username" autocomplete="username">
+      <input id="password-input" type="password" placeholder="Password" maxlength="100" aria-label="Password" autocomplete="current-password">
       <div class="auth-buttons">
         <button id="login-btn">Log in</button>
         <button id="register-btn">Register</button>
       </div>
-      <p id="auth-error" class="hidden"></p>
+      <p id="auth-error" class="hidden" role="alert" aria-live="polite"></p>
     </section>
     <section id="todo-view" class="hidden">
       <div class="todo-header">

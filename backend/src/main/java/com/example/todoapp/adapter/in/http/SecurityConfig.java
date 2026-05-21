@@ -45,9 +45,15 @@ public class SecurityConfig {
                 //   absence of one yields 401.
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**").permitAll()
+                        // Routes to TestResetController (@Profile("test")); absent in prod so the
+                        // path 404s there. Open so Cucumber suites can reset DB state without a token.
                         .requestMatchers("/api/todos/reset").permitAll()
                         .requestMatchers("/", "/index.html", "/css/**", "/src/**").permitAll()
-                        .anyRequest().authenticated())
+                        .requestMatchers("/api/**").authenticated()
+                        // static-locations includes file:../ so the static handler could otherwise
+                        // serve arbitrary repo files (e.g. /backend/**) to any authenticated user.
+                        // Deny anything not explicitly allowlisted above.
+                        .anyRequest().denyAll())
 
                 // Without this, the default entry point is Http403ForbiddenEntryPoint, which
                 // turns missing/invalid authentication into 403. We want 401 so the frontend
