@@ -1,92 +1,58 @@
 # CLAUDE.md
 
-Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+Project-specific notes for working in this repo. See `PRD.md` for the product spec and `ARCHITECTURE.md` for layer structure and file responsibilities.
 
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+## What this is
 
-## 1. Think Before Coding
+Single-page in-browser TODO app. Plain HTML/CSS/JS frontend (no build step). Spring Boot 4.x + Java 21 backend, PostgreSQL, Flyway, hexagonal architecture. JWT auth implemented; OAuth2 (GitHub) is the next step.
 
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
+## Commands
 
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
+Frontend lives at the repo root; backend in `backend/`.
 
-## 2. Simplicity First
+| Task | Command |
+|---|---|
+| Run unit tests (JS) | `npm test` |
+| Run BDD/Cucumber tests | `npm run test:bdd` |
+| Run backend unit + integration tests | `cd backend && ./mvnw test` |
+| Run a single backend test | `cd backend && ./mvnw test -Dtest=ClassName#method` |
+| Build backend jar | `cd backend && ./mvnw package` |
+| Run full stack locally | `docker compose up --build` (backend on `:8080`, db on `:5432`) |
+| Serve frontend | open `index.html` directly, or any static server on the repo root |
+| Reset test DB | `DELETE /api/todos/reset` (test profile only) |
 
-**Minimum code that solves the problem. Nothing speculative.**
+JWT secret in dev falls back to an insecure default. Override with `JWT_SECRET=$(openssl rand -base64 32) docker compose up`.
 
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
+## Repo layout (high level)
 
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+- `index.html`, `css/`, `src/` — frontend (`app.js`, `api.js`, `auth.js`)
+- `backend/src/main/java/com/example/todoapp/` — hexagonal Spring Boot app: `domain/`, `application/`, `adapter/in/http/`, `adapter/out/persistence/`, `adapter/out/security/`
+- `features/` — Cucumber `.feature` files and `step_definitions/`
+- `backend/src/test/` — JUnit tests, mirroring main package structure
 
-## 3. Surgical Changes
+## Conventions
 
-**Touch only what you must. Clean up only your own mess.**
+**Hexagonal boundaries (enforce strictly):**
+- `domain/` must not import Spring, JPA, Jackson, or anything from `adapter/`. Pure Java only.
+- `application/` may depend on `domain/` ports, nothing else.
+- `adapter/in/http/` and `adapter/out/persistence/` depend inward on ports; never on each other.
+- New persistence → add a port in `domain/port/out/`, implement it in `adapter/out/persistence/`.
+- New HTTP endpoint → add a port in `domain/port/in/`, implement in `application/`, expose via `adapter/in/http/`.
 
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
+**HTTP status codes:** map domain exceptions in `GlobalExceptionHandler`. Auth failures are `401`, not `403` or `500` — a past bug shipped `500` on bad login and broke the frontend's error display (see commit `7b640d3`).
 
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
+**Cucumber step definitions:** use `assert.strictEqual` (and friends) — not `throw new Error(...)`. All `*.steps.js` files follow this.
 
-The test: Every changed line should trace directly to the user's request.
+**DTOs:** request DTOs end in `Request`, response DTOs end in `Response`. Validation lives on the DTO via Bean Validation (`@NotBlank`, `@ValidIsoDate`, etc.) — not in controllers or use cases.
 
-## 4. Goal-Driven Execution
+**Passwords:** hashed with Argon2 via `PasswordHasher` port. Never log or return password fields.
 
-**Define success criteria. Loop until verified.**
+## Gotchas
 
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
+- Frontend has **no build step**. Don't add bundlers, frameworks, or npm-runtime deps. `package.json` is test-tooling only.
+- Maven dependency download can be slow on a cold deployment pipeline (see commit `1c41821`). If CI flakes early, suspect the download timeout before suspecting the code.
+- Tests use H2 by default and Testcontainers for the integration layer; production uses PostgreSQL. Schema differences will bite — keep migrations Flyway-compatible across both.
 
-For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-```
+## Out of scope (do not propose)
 
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
-
----
-
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
-
----
-
-## 5. Project Context
-
-**What this is:** A single-page, in-browser TODO app. See `PRD.md` for full spec.
-
-**Architecture:** See `ARCHITECTURE.md` for file structure, responsibilities, function signatures, and data flow.
-
-**Tech constraints:**
-- Frontend: Plain HTML/CSS/JS only — no frameworks, no build tools, no external dependencies
-- Backend: Spring Boot 4.x, Java 21, Maven, PostgreSQL, Spring Data JPA, Flyway
-
-**Hard scope boundaries (non-goals):** No cloud sync, no native apps, no priorities/tags.
-
-**Auth:** Username/password registration and login implemented; JWT Bearer tokens stored in `localStorage`; passwords hashed server-side with Argon2. Users see only their own todos. **Next step:** OAuth2 login via a third-party provider (e.g., GitHub).
-
-**Todo data model (persisted via backend API):**
-- `id` — UUID
-- `title` — string (task text)
-- `completed` — boolean
-- `dueDate` — string | null (ISO 8601 date, optional)
-- `userId` — UUID (owning user)
-
-**Backend architecture:** Hexagonal (Ports & Adapters) — domain is isolated from infrastructure. See `ARCHITECTURE.md` for layer breakdown and REST API status.
-
-**Core features:** view list · add todo · toggle complete · delete todo · due date
+Cloud sync, native apps, priorities, tags, drag-and-drop reordering. See PRD §3 and §10.
