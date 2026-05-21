@@ -24,7 +24,7 @@ public class JwtService {
             @Value("${app.security.jwt.ttl-minutes:60}") long ttlMinutes) {
         // Base64-encoded because HMAC keys are raw bytes, and properties files are text.
         // Base64 is the conventional, safe way to embed binary in text config.
-        this.key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(base64Secret)); // jjw constructor enforces the minimum key length for the algorithm
+        this.key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(base64Secret)); // jjwt constructor enforces the minimum key length for the algorithm
         this.ttl = Duration.ofMinutes(ttlMinutes);
     }
 
